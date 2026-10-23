@@ -6,6 +6,7 @@ import {
   remoteUrlFromConfig,
   repoFromGitConfig,
   repoFromRemoteUrl,
+  repoNameOf,
   resolveRepoFromDirectory,
 } from "../build/repo.mjs";
 
@@ -57,6 +58,13 @@ test("gitdirFromPointer reads a worktree pointer", () => {
   assert.equal(gitdirFromPointer("gitdir: /repo/.git/worktrees/wt"), "/repo/.git/worktrees/wt");
   assert.equal(gitdirFromPointer(""), "");
   assert.equal(gitdirFromPointer("something else"), "");
+});
+
+test("repoNameOf reads the repo name out of a filter", () => {
+  assert.equal(repoNameOf("qubitquilt/boop"), "boop");
+  assert.equal(repoNameOf("boop"), "boop");
+  assert.equal(repoNameOf(""), "");
+  assert.equal(repoNameOf("  "), "");
 });
 
 test("resolveRepoFromDirectory reads .git/config directly", async () => {

@@ -26,6 +26,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { API_ORIGIN, OAUTH_CLIENT_ID } from "../shared/constants";
+import { normalizeOrigin } from "../shared/origin";
 
 const PORT = Number(process.env.OPENCHAMBER_SERVICE_PORT ?? "");
 const SERVICE_TOKEN = process.env.OPENCHAMBER_SERVICE_TOKEN ?? "";
@@ -42,31 +43,6 @@ const MAX_BODY_BYTES = 2_000_000;
 const configHome =
   process.env.XDG_CONFIG_HOME?.trim() || join(process.env.HOME?.trim() || homedir(), ".config");
 const AUTH_FILE = join(configHome, "openchamber-booppr", "auth.json");
-
-/**
- * A bare origin: no path, query, hash or credentials. https is required
- * everywhere except the loopback hosts, so a port-forwarded development
- * receiver (`http://localhost:8080`) works without weakening the default.
- * Returns "" when the value is not acceptable.
- */
-export function normalizeOrigin(value: unknown): string {
-  if (typeof value !== "string" || value.trim() === "") return "";
-  try {
-    const url = new URL(value.trim());
-    const loopback =
-      url.hostname === "localhost" ||
-      url.hostname === "127.0.0.1" ||
-      url.hostname === "[::1]" ||
-      url.hostname === "::1";
-    if (url.protocol !== (loopback ? "http:" : "https:")) return "";
-    if (url.username || url.password) return "";
-    if (url.pathname !== "/" && url.pathname !== "") return "";
-    if (url.search || url.hash) return "";
-    return url.origin;
-  } catch {
-    return "";
-  }
-}
 
 /** A tenant slug: the lowercase identifiers tenants are keyed by. */
 export function normalizeSlug(value: unknown): string {

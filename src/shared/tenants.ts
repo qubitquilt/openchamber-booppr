@@ -1,7 +1,9 @@
 import { API_ORIGIN } from "./constants";
+import { BoopError } from "./client";
 import { host } from "./host";
 import { loadPreferences, savePreferences } from "./preferences";
 import { deleteStorage, read, write } from "./storage";
+import { normalizeOrigin } from "./origin";
 import type { SessionTenantClaim } from "./types";
 
 /**
@@ -27,14 +29,13 @@ export class NoTenantError extends Error {
   }
 }
 
-export class NotConnectedError extends Error {
-  readonly reason: unknown;
-
-  constructor(reason?: unknown) {
-    super("Boop is not connected. Sign in from the extension's empty state.");
-    this.name = "NotConnectedError";
-    this.reason = reason;
-  }
+/**
+ * A 401 that survived the service's refresh-on-use: the session is dead and
+ * only a fresh sign-in helps. Surfaces route this to the sign-in view instead
+ * of a Retry banner that would 401 forever.
+ */
+export function isSessionExpired(error: unknown): boolean {
+  return error instanceof BoopError && (error.code === "SESSION_EXPIRED" || error.status === 401);
 }
 
 /**
@@ -127,9 +128,9 @@ export async function invalidateBootstrapCache(): Promise<void> {
 
 /**
  * Validate a typed server URL to a bare origin, or report the problem. Empty
- * means the bundled origin, which is what the field defaults to. https is
- * required everywhere except the loopback hosts, matching the service's own
- * rule, so a port-forwarded development receiver works.
+ * means the bundled origin, which is what the field defaults to. The rule is
+ * the shared one in `origin.ts`, so the field can never accept a URL the
+ * service then rejects: https everywhere except the loopback hosts.
  */
 export function parseServerUrl(value: string | undefined): {
   origin: string;
@@ -137,21 +138,8 @@ export function parseServerUrl(value: string | undefined): {
 } {
   const trimmed = value?.trim() ?? "";
   if (!trimmed) return { origin: API_ORIGIN, error: null };
-  try {
-    const url = new URL(trimmed);
-    const loopback =
-      url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
-    const bare =
-      url.protocol === (loopback ? "http:" : "https:") &&
-      !url.username &&
-      !url.password &&
-      (url.pathname === "/" || url.pathname === "") &&
-      !url.search &&
-      !url.hash;
-    if (bare) return { origin: url.origin, error: null };
-  } catch {
-    // Not a URL; fall through to the error.
-  }
+  const origin = normalizeOrigin(trimmed);
+  if (origin) return { origin, error: null };
   return {
     origin: API_ORIGIN,
     error: "Enter an https origin, like https://api.booppr.com (http is allowed for localhost).",

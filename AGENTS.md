@@ -33,7 +33,9 @@ Node.
 
 `src/service/` is the only Node code. It is typechecked by `tsconfig.service.json` (which turns on
 `@types/node`), not the surface `tsconfig.json` (which deliberately has `types: []`). It imports
-only `src/shared/constants.ts`, so the bundle stays small.
+only `src/shared/constants.ts` and `src/shared/origin.ts`, so the bundle stays small. `origin.ts`
+is the one bare-origin rule both the service and `parseServerUrl` in `tenants.ts` run, so the
+sign-in field can never accept a URL the service then rejects.
 
 ## Changing the Boop receiver
 
@@ -84,8 +86,9 @@ Fences, named so a future contributor knows where they sit:
   `~/.config/openchamber-booppr/auth.json` (mode `0600`), with the origin it was minted for. It
   never enters `host.storage`, the page, or a chip.
 - **Inbound server trust.** The sign-in origin comes from the panel's **Receiver URL** field, so
-  it is validated by `parseServerUrl`/the service's `normalizeOrigin` (a bare origin; https
-  everywhere except the loopback hosts) before any call.
+  it is validated by the shared `normalizeOrigin` in `src/shared/origin.ts` (a bare origin; https
+  everywhere except the loopback hosts) before any call — the same function the service runs, so
+  the two sides cannot drift.
 - **Storage trust.** The only writer of `host.storage` keys is this extension's code. Reads pass
   through a sanitizer in `src/shared/preferences.ts` (`read<T>(key, sanitize)`). A new key needs a
   sanitizer and a test.

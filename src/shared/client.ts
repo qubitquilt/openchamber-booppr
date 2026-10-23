@@ -70,24 +70,38 @@ function buildQuery(
 }
 
 /**
- * Turn a non-2xx into a `BoopError`. The receiver answers structured
- * `{field, message}` bodies on validation failures, `{error: "…"}` on legacy
- * paths, and plain text ("unauthorized", "forbidden") on the rest — so the
- * plain text becomes the message when there is nothing structured to read.
+ * Turn a non-2xx into a `BoopError`. Three body shapes arrive here:
+ *
+ * - the service's `/forward` envelopes, which carry `{message, code}` where
+ *   `code` is the service's own marker (`DISCONNECTED`, `UPSTREAM_FAILED`,
+ *   `BAD_PATH`) — carried through verbatim so callers can branch on it;
+ * - the receiver's structured bodies, `{field, message}` on validation
+ *   failures and `{error: "…"}` on legacy paths;
+ * - plain text ("unauthorized", "forbidden") on the rest, which becomes the
+ *   message while the status fabricates the code.
  */
 function toBoopError(status: number, body: string): BoopError {
   let message = "";
   let code = "";
+  let field = "";
   try {
-    const parsed = JSON.parse(body) as { message?: unknown; error?: unknown; field?: unknown };
+    const parsed = JSON.parse(body) as {
+      message?: unknown;
+      error?: unknown;
+      code?: unknown;
+      field?: unknown;
+    };
     if (typeof parsed.message === "string") message = parsed.message;
     else if (typeof parsed.error === "string") message = parsed.error;
-    if (typeof parsed.error === "string" && code === "") code = parsed.error.toUpperCase();
+    if (typeof parsed.code === "string" && parsed.code) code = parsed.code;
+    else if (typeof parsed.error === "string" && parsed.error) code = parsed.error.toUpperCase();
+    if (typeof parsed.field === "string" && parsed.field) field = parsed.field;
   } catch {
     message = body.trim();
   }
   if (message.length > 300) message = `${message.slice(0, 299)}…`;
   if (!message) message = `Boop answered ${status}.`;
+  if (field) message = `${field}: ${message}`;
   if (!code) code = statusLabel(status);
   return new BoopError(status, code, message);
 }

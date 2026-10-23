@@ -55,9 +55,9 @@ import type {
   TenantRunTelemetryResponse,
 } from "../shared/types";
 import {
-  NotConnectedError,
   bootstrap,
   invalidateBootstrapCache,
+  isSessionExpired,
   type TenantContext,
 } from "../shared/tenants";
 
@@ -236,10 +236,16 @@ async function load(): Promise<void> {
   } catch (error) {
     if (token !== renderToken) return;
     state.loading = false;
-    state.error =
-      error instanceof NotConnectedError
-        ? error.message
-        : `Could not reach Boop. ${describeAndLog("Reach Boop", error)}`;
+    if (isSessionExpired(error)) {
+      // The service already tried refresh-on-use; the session is dead. Back
+      // to sign-in instead of a Retry banner that would 401 forever.
+      state.connected = false;
+      state.context = null;
+      accountsResolved = true;
+      render();
+      return;
+    }
+    state.error = `Could not reach Boop. ${describeAndLog("Reach Boop", error)}`;
     render();
   }
 }

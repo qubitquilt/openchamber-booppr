@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -145,33 +146,57 @@ test("wraps a signed-out forward as a DISCONNECTED envelope", async () => {
   });
 });
 
-test("forwards to the origin the session was minted against", async () => {
-  // A closed loopback port stands in for the receiver: the call goes out to
-  // the stored origin and fails fast, without touching any real host.
+test("forwards to the stored origin with the session cookie attached", async () => {
+  // A throwaway local receiver pins both halves of the forward: the call must
+  // land on the origin the session was minted against (not the bundled
+  // default), and it must carry the session cookie and the JSON accept header.
+  // Without the listener the test would pass even if the service ignored the
+  // stored origin or dropped the cookie, because nothing would see either.
   const { writeFile, mkdir } = await import("node:fs/promises");
-  const authDir = join(configHome, "openchamber-booppr");
-  await mkdir(authDir, { recursive: true });
-  await writeFile(
-    join(authDir, "auth.json"),
-    JSON.stringify({
-      origin: "http://127.0.0.1:9",
-      slug: "acme",
-      jwt: "j",
-      role: "member",
-      account: "",
-      expiresAt: "",
-      savedAt: 1,
-    }),
-  );
-  const response = await fetch(url("/forward"), {
-    method: "POST",
-    headers: { ...auth, "Content-Type": "application/json" },
-    body: JSON.stringify({ method: "GET", path: "/api/me" }),
+  const seen = { path: "", cookie: "", accept: "", contentType: "" };
+  const upstream = createHttpServer((request, response) => {
+    seen.path = request.url ?? "";
+    seen.cookie = String(request.headers.cookie ?? "");
+    seen.accept = String(request.headers.accept ?? "");
+    seen.contentType = String(request.headers["content-type"] ?? "");
+    response.writeHead(200, { "Content-Type": "application/json" });
+    response.end(JSON.stringify({ sub: "12345" }));
   });
-  assert.equal(response.status, 200);
-  const envelope = await response.json();
-  assert.equal(envelope.status, 502);
-  assert.equal(JSON.parse(envelope.body).code, "UPSTREAM_FAILED");
+  await new Promise((done) => upstream.listen(0, "127.0.0.1", done));
+  const upstreamAddress = upstream.address();
+  const upstreamPort =
+    typeof upstreamAddress === "object" && upstreamAddress ? upstreamAddress.port : 0;
+  try {
+    const authDir = join(configHome, "openchamber-booppr");
+    await mkdir(authDir, { recursive: true });
+    await writeFile(
+      join(authDir, "auth.json"),
+      JSON.stringify({
+        origin: `http://127.0.0.1:${upstreamPort}`,
+        slug: "acme",
+        jwt: "session-jwt",
+        role: "member",
+        account: "",
+        expiresAt: "",
+        savedAt: 1,
+      }),
+    );
+    const response = await fetch(url("/forward"), {
+      method: "POST",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ method: "GET", path: "/api/me" }),
+    });
+    assert.equal(response.status, 200);
+    const envelope = await response.json();
+    assert.equal(envelope.status, 200);
+    assert.deepEqual(JSON.parse(envelope.body), { sub: "12345" });
+
+    assert.equal(seen.path, "/api/me");
+    assert.equal(seen.cookie, "boop_session=session-jwt");
+    assert.match(seen.accept, /application\/json/);
+  } finally {
+    await new Promise((done) => upstream.close(done));
+  }
 });
 
 test("refuses a forward path that is not a path", async () => {

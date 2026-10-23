@@ -58,13 +58,35 @@ test("a non-2xx becomes a BoopError with the receiver's message", async () => {
 
 test("structured error bodies name their field", async () => {
   const { request } = stub({
-    [`GET ${runsPath}`]: () => ({ status: 400, body: JSON.stringify({ message: "bad limit" }) }),
+    [`GET ${runsPath}`]: () => ({
+      status: 400,
+      body: JSON.stringify({ field: "limit", message: "bad limit" }),
+    }),
   });
   const client = createBoopClient(request);
   await assert.rejects(client.listRuns(tenant), (error) => {
     assert.ok(error instanceof BoopError);
     assert.equal(error.code, "HTTP_400");
-    assert.equal(error.message, "bad limit");
+    // The field the receiver named leads the message, the BOOP-76 shape.
+    assert.equal(error.message, "limit: bad limit");
+    return true;
+  });
+});
+
+test("the service envelope's error code is carried through", async () => {
+  const { request } = stub({
+    [`GET ${runsPath}`]: () => ({
+      status: 401,
+      body: JSON.stringify({ message: "Not connected. Sign in to Boop.", code: "DISCONNECTED" }),
+    }),
+  });
+  const client = createBoopClient(request);
+  await assert.rejects(client.listRuns(tenant), (error) => {
+    assert.ok(error instanceof BoopError);
+    // The service's own marker wins over the status-derived label, so a
+    // signed-out forward reads DISCONNECTED, not SESSION_EXPIRED.
+    assert.equal(error.code, "DISCONNECTED");
+    assert.equal(error.status, 401);
     return true;
   });
 });

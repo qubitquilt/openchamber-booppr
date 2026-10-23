@@ -27,6 +27,7 @@ import {
   attachPRChip,
   attachRunChip,
   startSessionForPR,
+  type PRChipData,
   type PRChipTarget,
   type RunChipTarget,
 } from "../shared/attachments";
@@ -39,7 +40,7 @@ import {
 import { firstPRRefIn, prKey, prTitle, relativeTimeOf } from "../shared/format";
 import { installStyles } from "../shared/styles";
 import type { TenantPR, TenantPRDetailResponse, TenantRun } from "../shared/types";
-import { NotConnectedError, bootstrap, type TenantContext } from "../shared/tenants";
+import { bootstrap, isSessionExpired, type TenantContext } from "../shared/tenants";
 
 /**
  * The picker behind the composer's + menu, shaped like OpenChamber's reference
@@ -210,10 +211,17 @@ async function load(): Promise<void> {
   } catch (error) {
     if (token !== renderToken) return;
     state.loading = false;
-    state.error =
-      error instanceof NotConnectedError
-        ? error.message
-        : `Could not reach Boop. ${describeAndLog("Reach Boop", error)}`;
+    if (isSessionExpired(error)) {
+      // The service already tried refresh-on-use; the session is dead. Back
+      // to sign-in instead of a Retry banner that would 401 forever.
+      state.connected = false;
+      state.context = null;
+      accountsResolved = true;
+      accountsChecking = false;
+      render();
+      return;
+    }
+    state.error = `Could not reach Boop. ${describeAndLog("Reach Boop", error)}`;
     render();
   }
 }
@@ -906,12 +914,14 @@ function observeWidth(): void {
 
 host.onItem((item) => {
   if (!item || !("providerId" in item)) return;
-  const data = item.data as
-    { owner?: string; repo?: string; prNumber?: string; runId?: string } | undefined;
-  const label = data?.runId
-    ? `Run ${data.runId}`
-    : data?.owner && data.repo && data.prNumber
-      ? prKey(data.owner, data.repo, Number(data.prNumber))
-      : "That item";
+  const data = item.data as Partial<PRChipData> | undefined;
+  const label =
+    typeof data?.runId === "string" && data.runId
+      ? `Run ${data.runId}`
+      : typeof data?.owner === "string" &&
+          typeof data.repo === "string" &&
+          typeof data.prNumber === "string"
+        ? prKey(data.owner, data.repo, Number(data.prNumber))
+        : "That item";
   void host.toast({ kind: "info", message: `${label} is already attached to this chat.` });
 });

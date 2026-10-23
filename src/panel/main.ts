@@ -33,6 +33,7 @@ import {
   composePRChip,
   reportFailure,
   startSessionForPR,
+  type PRChipData,
   type PRChipTarget,
 } from "../shared/attachments";
 import { prDetailScaffold, runDetailScaffold, type FindingState } from "../shared/detail";
@@ -45,7 +46,7 @@ import {
 } from "../shared/preferences";
 import { installStyles } from "../shared/styles";
 import { watchSessionLifecycle } from "../shared/lifecycle";
-import { resolveRepoFromDirectory } from "../shared/repo";
+import { repoNameOf, resolveRepoFromDirectory } from "../shared/repo";
 import type { SessionLink } from "../shared/session-links";
 import type {
   TenantPR,
@@ -54,9 +55,9 @@ import type {
   TenantRunTelemetryResponse,
 } from "../shared/types";
 import {
-  NotConnectedError,
   bootstrap,
   invalidateBootstrapCache,
+  isSessionExpired,
   refreshBadge,
   type TenantContext,
 } from "../shared/tenants";
@@ -87,6 +88,8 @@ interface PanelState {
   runTelemetry: Record<string, TenantRunTelemetryResponse | null>;
   /** A run fetched for a chip click that is not on the loaded page. */
   extraRun: TenantRun | null;
+  /** The tenant a chip was attached under, when it differs from the panel's. */
+  chipTenantId: string | null;
   /** Session links, loaded once per render cycle for the PR details. */
   sessionLinks: Record<string, SessionLink>;
   /** The repo the open project is, resolved from .git/config. */
@@ -110,6 +113,7 @@ const state: PanelState = {
   runFindings: {},
   runTelemetry: {},
   extraRun: null,
+  chipTenantId: null,
   sessionLinks: {},
   detectedRepo: "",
   preferences: {
@@ -253,10 +257,16 @@ async function load(): Promise<void> {
   } catch (error) {
     if (token !== renderToken) return;
     state.loading = false;
-    state.error =
-      error instanceof NotConnectedError
-        ? error.message
-        : `Could not reach Boop. ${describeAndLog("Reach Boop", error)}`;
+    if (isSessionExpired(error)) {
+      // The service already tried refresh-on-use; the session is dead. Back
+      // to sign-in instead of a Retry banner that would 401 forever.
+      state.connected = false;
+      state.context = null;
+      accountsResolved = true;
+      render();
+      return;
+    }
+    state.error = `Could not reach Boop. ${describeAndLog("Reach Boop", error)}`;
     render();
   }
 }
@@ -269,13 +279,17 @@ async function reloadPRs(cursor?: string): Promise<void> {
     return;
   }
   const repo = state.preferences.repoFilter;
-  const repoName = repo.includes("/") ? (repo.split("/")[1] ?? "") : "";
+  const repoName = repoNameOf(repo);
   const response = await client.listPRs(tenantId, {
     ...(repoName ? { repo: repoName } : {}),
     limit: 100,
     ...(cursor ? { cursor } : {}),
   });
-  const filtered = repoName ? response.prs : response.prs.filter((pr) => repoOfPR(pr) === repo);
+  // Server-side filtering ran when the filter carried a repo name; a filter
+  // that is not a bare name (or no filter at all) filters here, and an empty
+  // filter is pass-through — never a comparison against the empty string.
+  const filtered =
+    repoName || !repo ? response.prs : response.prs.filter((pr) => repoOfPR(pr) === repo);
   state.prs = cursor ? [...state.prs, ...filtered] : filtered;
   state.prsCursor = response.next_cursor ?? null;
 }
@@ -288,7 +302,7 @@ async function reloadRuns(cursor?: string): Promise<void> {
     return;
   }
   const repo = state.preferences.repoFilter;
-  const repoName = repo.includes("/") ? (repo.split("/")[1] ?? "") : "";
+  const repoName = repoNameOf(repo);
   const response = await client.listRuns(tenantId, {
     ...(repoName ? { repo: repoName } : {}),
     ...(state.preferences.runStatusFilter !== "any"
@@ -298,9 +312,8 @@ async function reloadRuns(cursor?: string): Promise<void> {
     limit: 50,
     ...(cursor ? { cursor } : {}),
   });
-  const filtered = repoName
-    ? response.runs
-    : response.runs.filter((run) => repoOfRun(run) === repo);
+  const filtered =
+    repoName || !repo ? response.runs : response.runs.filter((run) => repoOfRun(run) === repo);
   state.runs = cursor ? [...state.runs, ...filtered] : filtered;
   state.runsCursor = response.next_cursor ?? null;
 }
@@ -750,16 +763,33 @@ function findRun(runId: string | null): TenantRun | null {
   );
 }
 
-async function openRunDetail(runId: string): Promise<void> {
+async function openRunDetail(runId: string, tenantIdOverride?: string): Promise<void> {
+  rememberChipTenant(tenantIdOverride);
   state.preferences = await savePreferences({ openRunId: runId, openPR: null });
   render();
   ensureRunData(runId);
 }
 
-async function openPRDetail(key: string): Promise<void> {
+async function openPRDetail(key: string, tenantIdOverride?: string): Promise<void> {
+  rememberChipTenant(tenantIdOverride);
   state.preferences = await savePreferences({ openPR: key, openRunId: null });
   render();
   ensurePRDetail(key);
+}
+
+/**
+ * The tenant a detail acts in: the chip's tenant when the detail was opened
+ * from a chip attached under a different one, else the panel's own. A session
+ * authorizes the user, and the receiver's RBAC checks live membership, so a
+ * chip from another membership reads and acts under its own tenant.
+ */
+function activeTenantId(): string {
+  return state.chipTenantId || state.context?.tenantId || "";
+}
+
+function rememberChipTenant(tenantIdOverride?: string): void {
+  state.chipTenantId =
+    tenantIdOverride && tenantIdOverride !== state.context?.tenantId ? tenantIdOverride : null;
 }
 
 async function closeDetail(): Promise<void> {
@@ -769,7 +799,7 @@ async function closeDetail(): Promise<void> {
 
 /** Fetch a run's findings and telemetry once; a re-render picks them up. */
 function ensureRunData(runId: string): void {
-  const tenantId = state.context?.tenantId;
+  const tenantId = activeTenantId();
   if (!tenantId) return;
   if (state.runFindings[runId]) return;
   state.runFindings[runId] = { loading: true, error: null };
@@ -798,7 +828,7 @@ function ensureRunData(runId: string): void {
 
 /** Fetch the PR aggregate once; a re-render picks it up. */
 function ensurePRDetail(key: string): void {
-  const tenantId = state.context?.tenantId;
+  const tenantId = activeTenantId();
   if (!tenantId || state.prDetails[key]) return;
   const pr = parsePRKey(key);
   if (!pr) return;
@@ -822,7 +852,7 @@ function parsePRKey(key: string): { owner: string; repo: string; number: number 
 
 /** The open detail sheet, or null when the list should show. */
 function renderOpenDetail(): HTMLElement | null {
-  const tenantId = state.context?.tenantId;
+  const tenantId = activeTenantId();
   if (!tenantId) return null;
 
   if (state.preferences.openRunId) {
@@ -847,7 +877,7 @@ function renderOpenDetail(): HTMLElement | null {
         void attachRunChip({ run, tenantId }).catch((e) => reportFailure("Attach", e)),
       githubUrl: `https://github.com/${run.owner}/${run.repo}/pull/${run.pr_number}`,
       onTriggerReview: prRef
-        ? () => void triggerReview(prRef.owner, prRef.repo, prRef.number)
+        ? () => void triggerReview(tenantId, prRef.owner, prRef.repo, prRef.number)
         : undefined,
       onBack: () => void closeDetail(),
     });
@@ -878,7 +908,7 @@ function renderOpenDetail(): HTMLElement | null {
       onCompose: () => void composePRChip(target).catch((e) => reportFailure("Send to chat", e)),
       githubUrl: `https://github.com/${prRef?.owner ?? detail.pr.owner}/${prRef?.repo ?? detail.pr.repo}/pull/${prRef?.number ?? detail.pr.pr_number}`,
       onTriggerReview: () => {
-        if (prRef) void triggerReview(prRef.owner, prRef.repo, prRef.number);
+        if (prRef) void triggerReview(tenantId, prRef.owner, prRef.repo, prRef.number);
       },
       onBack: () => void closeDetail(),
     });
@@ -896,7 +926,7 @@ function prSessions(key: string): Array<[string, SessionLink]> {
 
 /** A session started from a run works on the run's PR. */
 async function startSessionFromRun(run: TenantRun): Promise<void> {
-  const tenantId = state.context?.tenantId;
+  const tenantId = activeTenantId();
   if (!tenantId) return;
   const key = prKey(run.owner, run.repo, run.pr_number);
   const detail = state.prDetails[key];
@@ -917,8 +947,12 @@ async function startSessionFromRun(run: TenantRun): Promise<void> {
 }
 
 /** Trigger an on-demand review and tell the user what the receiver said. */
-async function triggerReview(owner: string, repo: string, number: number): Promise<void> {
-  const tenantId = state.context?.tenantId;
+async function triggerReview(
+  tenantId: string,
+  owner: string,
+  repo: string,
+  number: number,
+): Promise<void> {
   if (!tenantId) return;
   try {
     const response = await client.triggerReview(tenantId, owner, repo, number);
@@ -965,6 +999,8 @@ async function switchTenant(tenantId: string): Promise<void> {
   state.prDetails = {};
   state.runFindings = {};
   state.runTelemetry = {};
+  state.extraRun = null;
+  state.chipTenantId = null;
   await invalidateBootstrapCache();
   await load();
 }
@@ -1009,6 +1045,8 @@ async function onDisconnect(): Promise<void> {
   state.prDetails = {};
   state.runFindings = {};
   state.runTelemetry = {};
+  state.extraRun = null;
+  state.chipTenantId = null;
   render();
 }
 
@@ -1018,29 +1056,40 @@ watchSessionLifecycle(client);
 /** Chip clicks land here; a chip click restores the PR or run it came from. */
 host.onItem((item) => {
   if (!item || !("providerId" in item) || item.providerId !== PROVIDER_ID) return;
-  const data = item.data as
-    { prNumber?: string; owner?: string; repo?: string; runId?: string } | undefined;
-  if (data?.runId) {
-    void openRunChip(data.runId);
+  // The chip's own payload, typed by the module that wrote it. A chip is
+  // attached under one tenant; honor it rather than the tenant the panel
+  // happens to show now, or the lookup 404s into the error banner.
+  const data = item.data as Partial<PRChipData> | undefined;
+  if (!data) return;
+  const chipTenant = typeof data.tenantId === "string" ? data.tenantId : "";
+  if (typeof data.runId === "string" && data.runId) {
+    void openRunChip(data.runId, chipTenant);
     return;
   }
-  if (data?.owner && data.repo && data.prNumber) {
-    void openPRDetail(`${data.owner}/${data.repo}#${data.prNumber}`);
+  if (
+    typeof data.owner === "string" &&
+    typeof data.repo === "string" &&
+    typeof data.prNumber === "string" &&
+    data.prNumber
+  ) {
+    void openPRDetail(`${data.owner}/${data.repo}#${data.prNumber}`, chipTenant);
   }
 });
 
 /**
  * A chip click can name a run outside the loaded page; fetch it first, the way
- * a detail opened from a stale page would.
+ * a detail opened from a stale page would. The fetch uses the chip's tenant.
  */
-async function openRunChip(runId: string): Promise<void> {
-  if (!findRun(runId) && state.context?.tenantId) {
+async function openRunChip(runId: string, chipTenant: string): Promise<void> {
+  rememberChipTenant(chipTenant);
+  const tenantId = activeTenantId();
+  if (!findRun(runId) && tenantId) {
     try {
-      state.extraRun = await client.getRun(state.context.tenantId, runId);
+      state.extraRun = await client.getRun(tenantId, runId);
     } catch (error) {
       await reportFailure("Open run", error);
       return;
     }
   }
-  await openRunDetail(runId);
+  await openRunDetail(runId, chipTenant || undefined);
 }
