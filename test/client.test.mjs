@@ -170,9 +170,12 @@ test("isSessionExpired routes 401s to sign-in and leaves the rest alone", () => 
 
 test("classifyLoadError splits the sign-in route from the retry banner", () => {
   const expired = classifyLoadError(new BoopError(401, "SESSION_EXPIRED", "expired"));
-  assert.deepEqual(expired, { expired: true, message: null });
+  // The expired arm carries no message: there is no banner to render.
+  assert.deepEqual(expired, { expired: true });
 
   const refused = classifyLoadError(new BoopError(403, "FORBIDDEN", "forbidden"));
-  assert.equal(refused.expired, false);
-  assert.match(refused.message ?? "", /^Could not reach Boop\. FORBIDDEN: forbidden$/);
+  assert.deepEqual(refused, {
+    expired: false,
+    message: "Could not reach Boop. FORBIDDEN: forbidden",
+  });
 });

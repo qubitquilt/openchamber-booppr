@@ -1,8 +1,7 @@
 import { PROVIDER_ID, githubPrUrl } from "./constants";
-import { BoopError, type BoopClient } from "./client";
+import { BoopError } from "./client";
 import { host } from "./host";
 import { rememberSession } from "./preferences";
-import { invalidateBootstrapCache } from "./tenants";
 import {
   branchForPR,
   locationOf,
@@ -244,53 +243,6 @@ export async function openOnGitHub(target: PRChipTarget | RunChipTarget): Promis
   const repo = "pr" in target ? target.pr.repo : target.run.repo;
   const number = "pr" in target ? target.pr.pr_number : target.run.pr_number;
   await host.openUrl(githubPrUrl(owner, repo, number));
-}
-
-/**
- * Trigger an on-demand review and tell the user what the receiver said.
- * Shared by the panel and the page so the wording and the 409/429 handling
- * stay in one place. Resolves `true` when the receiver accepted (or reports a
- * deliberate re-run) and `false` when it refused; the caller reloads its data
- * on `true`.
- */
-export async function requestReview(
-  client: Pick<BoopClient, "triggerReview">,
-  tenantId: string,
-  owner: string,
-  repo: string,
-  number: number,
-): Promise<boolean> {
-  if (!tenantId) return false;
-  try {
-    const response = await client.triggerReview(tenantId, owner, repo, number);
-    if (response.status === "duplicate") {
-      await host.toast({
-        kind: "info",
-        message: `Boop already reviewed the latest head of ${prKey(owner, repo, number)}.`,
-        dismiss: true,
-      });
-    } else if (response.run_id) {
-      await host.toast({ kind: "success", message: `Review accepted: ${response.run_id}.` });
-    } else {
-      await host.toast({
-        kind: "success",
-        message: `Review of ${prKey(owner, repo, number)} queued.`,
-      });
-    }
-    await invalidateBootstrapCache();
-    return true;
-  } catch (error) {
-    if (error instanceof BoopError && error.code === "RATE_LIMITED") {
-      await host.toast({
-        kind: "error",
-        message: "The tenant's review rate limit is spent for now. Try again later.",
-        dismiss: true,
-      });
-      return false;
-    }
-    await reportFailure("Request review", error);
-    return false;
-  }
 }
 
 /** One line of what a finding is, for chips and lists. */

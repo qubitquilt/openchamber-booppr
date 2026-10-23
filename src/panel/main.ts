@@ -13,6 +13,7 @@ import {
 
 import { createBoopClient } from "../shared/client";
 import { classifyLoadError, describeAndLog } from "../shared/errors";
+import { createDetailStore } from "../shared/details";
 import {
   PROVIDER_ID,
   RUN_STATUSES,
@@ -32,12 +33,12 @@ import {
   attachRunChip,
   composePRChip,
   reportFailure,
-  requestReview,
   startSessionForPR,
   type PRChipData,
   type PRChipTarget,
 } from "../shared/attachments";
-import { prDetailScaffold, runDetailScaffold, type FindingState } from "../shared/detail";
+import { requestReview } from "../shared/review";
+import { prDetailScaffold, runDetailScaffold } from "../shared/detail";
 import { parsePRRef, prKey, prTitle, relativeTimeOf, costLabel } from "../shared/format";
 import {
   loadPreferences,
@@ -50,12 +51,7 @@ import { watchSessionLifecycle } from "../shared/lifecycle";
 import { repoMatchesFilter, repoNameOf } from "../shared/repo-filter";
 import { resolveRepoFromDirectory } from "../shared/repo";
 import type { SessionLink } from "../shared/session-links";
-import type {
-  TenantPR,
-  TenantPRDetailResponse,
-  TenantRun,
-  TenantRunTelemetryResponse,
-} from "../shared/types";
+import type { TenantPR, TenantRun } from "../shared/types";
 import {
   bootstrap,
   invalidateBootstrapCache,
@@ -75,6 +71,19 @@ if (!root) throw new Error("Boop panel is missing its #root element.");
 
 const client = createBoopClient(serviceTransport);
 
+/** The per-tenant detail caches, shared with the page through one policy. */
+const store = createDetailStore(
+  {
+    prDetail: (tenantId, owner, repo, number) => client.getPRDetail(tenantId, owner, repo, number),
+    runFindings: (tenantId, runId) => client.getRunFindings(tenantId, runId),
+    runTelemetry: (tenantId, runId) => client.getRunTelemetry(tenantId, runId),
+  },
+  (action, error) => {
+    state.error = describeAndLog(action, error);
+    render();
+  },
+);
+
 interface PanelState {
   ready: HostReadyContext | null;
   connected: boolean;
@@ -84,9 +93,6 @@ interface PanelState {
   runs: TenantRun[];
   runsCursor: string | null;
   /** Details fetched for a click or a chip, keyed by `owner/repo#n` / run id. */
-  prDetails: Record<string, TenantPRDetailResponse>;
-  runFindings: Record<string, FindingState>;
-  runTelemetry: Record<string, TenantRunTelemetryResponse | null>;
   /** A run fetched for a chip click that is not on the loaded page. */
   extraRun: TenantRun | null;
   /** Session links, loaded once per render cycle for the PR details. */
@@ -108,9 +114,6 @@ const state: PanelState = {
   prsCursor: null,
   runs: [],
   runsCursor: null,
-  prDetails: {},
-  runFindings: {},
-  runTelemetry: {},
   extraRun: null,
   sessionLinks: {},
   detectedRepo: "",
@@ -790,12 +793,6 @@ function detailTenantId(): string {
   return state.context?.tenantId || "";
 }
 
-/** Detail caches are keyed by tenant first, so a chip under another
- * membership never reads another tenant's cached detail or findings. */
-function cacheKey(tenantId: string, resource: string): string {
-  return `${tenantId}|${resource}`;
-}
-
 async function closeDetail(): Promise<void> {
   state.preferences = await savePreferences({ openRunId: null, openPR: null });
   render();
@@ -805,48 +802,16 @@ async function closeDetail(): Promise<void> {
 function ensureRunData(runId: string): void {
   const tenantId = detailTenantId();
   if (!tenantId) return;
-  const key = cacheKey(tenantId, runId);
-  if (state.runFindings[key]) return;
-  state.runFindings[key] = { loading: true, error: null };
-  void client
-    .getRunFindings(tenantId, runId)
-    .then((items) => {
-      state.runFindings[key] = { loading: false, error: null, items };
-      render();
-    })
-    .catch((error: unknown) => {
-      state.runFindings[key] = { loading: false, error: describeAndLog("Load findings", error) };
-      render();
-    });
-  if (state.runTelemetry[key] !== undefined) return;
-  state.runTelemetry[key] = null;
-  void client
-    .getRunTelemetry(tenantId, runId)
-    .then((telemetry) => {
-      state.runTelemetry[key] = telemetry;
-      render();
-    })
-    .catch(() => {
-      state.runTelemetry[key] = null;
-    });
+  store.ensureRunData(tenantId, runId);
 }
 
 /** Fetch the PR aggregate once; a re-render picks it up. */
 function ensurePRDetail(key: string): void {
   const tenantId = detailTenantId();
-  if (!tenantId || state.prDetails[cacheKey(tenantId, key)]) return;
+  if (!tenantId) return;
   const pr = parsePRRef(key);
   if (!pr) return;
-  void client
-    .getPRDetail(tenantId, pr.owner, pr.repo, pr.number)
-    .then((detail) => {
-      state.prDetails[cacheKey(tenantId, key)] = detail;
-      render();
-    })
-    .catch((error: unknown) => {
-      state.error = describeAndLog("Open pull request", error);
-      render();
-    });
+  store.ensurePRDetail(tenantId, pr.owner, pr.repo, pr.number);
 }
 
 /** The open detail sheet, or null when the list should show. */
@@ -858,12 +823,11 @@ function renderOpenDetail(): HTMLElement | null {
     const run = findRun(state.preferences.openRunId);
     if (!run) return null;
     ensureRunData(run.id);
-    const findingsKey = cacheKey(tenantId, run.id);
     const prRef = parsePRRef(prKey(run.owner, run.repo, run.pr_number));
     return runDetailScaffold({
       run,
-      findings: state.runFindings[findingsKey] ?? null,
-      telemetry: state.runTelemetry[findingsKey] ?? null,
+      findings: store.findings(tenantId, run.id),
+      telemetry: store.telemetry(tenantId, run.id),
       feedback: {
         onSubmit: (input) => client.postFeedback(tenantId, run.id, input).then(() => undefined),
       },
@@ -880,7 +844,10 @@ function renderOpenDetail(): HTMLElement | null {
         ? () =>
             void requestReview(client, tenantId, prRef.owner, prRef.repo, prRef.number).then(
               (accepted) => {
-                if (accepted) void load();
+                if (!accepted) return;
+                // A fresh review makes the cached aggregate stale.
+                store.dropPRDetail(tenantId, prKey(prRef.owner, prRef.repo, prRef.number));
+                void load();
               },
             )
         : undefined,
@@ -890,7 +857,7 @@ function renderOpenDetail(): HTMLElement | null {
 
   if (state.preferences.openPR) {
     const key = state.preferences.openPR;
-    const detail = state.prDetails[cacheKey(tenantId, key)];
+    const detail = store.prDetail(tenantId, key);
     if (!detail) {
       ensurePRDetail(key);
       const holder = el("div", { style: "flex:1; display:flex; align-items:center;" });
@@ -916,7 +883,10 @@ function renderOpenDetail(): HTMLElement | null {
         if (prRef)
           void requestReview(client, tenantId, prRef.owner, prRef.repo, prRef.number).then(
             (accepted) => {
-              if (accepted) void load();
+              if (!accepted) return;
+              // A fresh review makes the cached aggregate stale.
+              store.dropPRDetail(tenantId, prKey(prRef.owner, prRef.repo, prRef.number));
+              void load();
             },
           );
       },
@@ -939,7 +909,7 @@ async function startSessionFromRun(run: TenantRun): Promise<void> {
   const tenantId = detailTenantId();
   if (!tenantId) return;
   const key = prKey(run.owner, run.repo, run.pr_number);
-  const detail = state.prDetails[cacheKey(tenantId, key)];
+  const detail = store.prDetail(tenantId, key);
   const target: PRChipTarget = detail
     ? { pr: detail.pr, tenantId, findings: detail.findings }
     : {
@@ -968,13 +938,13 @@ async function switchTenant(tenantId: string): Promise<void> {
   });
   state.prs = [];
   state.runs = [];
-  state.prDetails = {};
-  state.runFindings = {};
-  state.runTelemetry = {};
   state.extraRun = null;
+  store.clear();
   await invalidateBootstrapCache();
   await load();
 }
+
+store.onRender(() => render());
 
 /** Mount the panel once, then refresh when the theme moves. */
 host.onReady((ctx) => {
@@ -1013,10 +983,8 @@ async function onDisconnect(): Promise<void> {
   state.context = null;
   state.prs = [];
   state.runs = [];
-  state.prDetails = {};
-  state.runFindings = {};
-  state.runTelemetry = {};
   state.extraRun = null;
+  store.clear();
   render();
 }
 

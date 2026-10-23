@@ -27,7 +27,11 @@ test("sanitizeRepoFilter keeps shapes the grammar understands", () => {
 test("repoNameOf reads the repo name the server's query param takes", () => {
   assert.equal(repoNameOf("qubitquilt/boop"), "boop");
   assert.equal(repoNameOf("boop"), "boop");
-  // Junk sanitizes to "", which the fetcher sends as no filter at all.
+  // Junk sanitizes to "", which the fetcher sends as no filter at all. These
+  // two are what distinguish the sanitize-first implementation from a
+  // trim-and-slice one, which would answer "boop" and "name" here.
+  assert.equal(repoNameOf("qubitquilt / boop"), "");
+  assert.equal(repoNameOf("@bad/name"), "");
   assert.equal(repoNameOf(""), "");
   assert.equal(repoNameOf("qubitquilt/"), "");
 });

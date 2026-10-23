@@ -14,8 +14,9 @@ builds and tests.
 
 ```
 src/shared/     code every surface shares: the API client, the service transport and sign-in,
-                chip builders, preferences, stylesheet, storage helpers (`storage.ts`), error
-                formatting and load-error routing (`errors.ts`), the tenant bootstrap
+                chip builders, the review-request flow (`review.ts`), the per-tenant detail
+                caches (`details.ts`), preferences, stylesheet, storage helpers (`storage.ts`),
+                error formatting and load-error routing (`errors.ts`), the tenant bootstrap
                 (`tenants.ts`), the git-remote resolver (`repo.ts`), the repo filter grammar
                 (`repo-filter.ts`), and the one bare-origin rule (`origin.ts`)
 src/service/    the local service      -> service/main.js (Node)
@@ -69,9 +70,11 @@ integration card; it cannot work.
 - Errors from the API surface as a banner or a toast, never as a silent blank screen. `describe()`
   turns any thrown value into one line of text; toasts carry the action and the error code, with
   the full message on the console.
-- Tests cover the pure modules (`client.ts`, `errors.ts`, `format.ts`, `repo.ts`, `repo-filter.ts`,
-  `origin.ts`, `session-links.ts`, `storage.ts`) and the service's loopback contract. Anything that
-  needs the host is verified by opening the surface in OpenChamber, not by a unit test.
+- Tests cover the pure modules (`client.ts`, `details.ts`, `errors.ts`, `format.ts`, `repo.ts`,
+  `repo-filter.ts`, `origin.ts`, `session-links.ts`, `storage.ts`) and the service's loopback
+  contract. `review.ts` imports `host` (it toasts), so it stays out of the test bundle like
+  `tenants.ts` and `preferences.ts`. Anything that needs the host is verified by opening the
+  surface in OpenChamber, not by a unit test.
 
 ## Trust boundaries
 

@@ -13,6 +13,7 @@ import {
 
 import { createBoopClient } from "../shared/client";
 import { classifyLoadError, describeAndLog } from "../shared/errors";
+import { createDetailStore } from "../shared/details";
 import {
   RUN_STATUSES,
   REVIEW_STATUSES,
@@ -31,11 +32,11 @@ import {
   attachRunChip,
   composePRChip,
   reportFailure,
-  requestReview,
   startSessionForPR,
   type PRChipTarget,
 } from "../shared/attachments";
-import { prDetailScaffold, runDetailScaffold, type FindingState } from "../shared/detail";
+import { requestReview } from "../shared/review";
+import { prDetailScaffold, runDetailScaffold } from "../shared/detail";
 import { parsePRRef, prKey, prTitle } from "../shared/format";
 import {
   loadPreferences,
@@ -50,12 +51,7 @@ import { repoMatchesFilter } from "../shared/repo-filter";
 import { resolveRepoFromDirectory } from "../shared/repo";
 import { boopWordmark } from "../shared/logo";
 import type { SessionLink } from "../shared/session-links";
-import type {
-  TenantPR,
-  TenantPRDetailResponse,
-  TenantRun,
-  TenantRunTelemetryResponse,
-} from "../shared/types";
+import type { TenantPR, TenantRun } from "../shared/types";
 import { bootstrap, invalidateBootstrapCache, type TenantContext } from "../shared/tenants";
 
 /**
@@ -69,6 +65,19 @@ if (!root) throw new Error("Boop page is missing its #root element.");
 
 const client = createBoopClient(serviceTransport);
 
+/** The per-tenant detail caches, shared with the panel through one policy. */
+const store = createDetailStore(
+  {
+    prDetail: (tenantId, owner, repo, number) => client.getPRDetail(tenantId, owner, repo, number),
+    runFindings: (tenantId, runId) => client.getRunFindings(tenantId, runId),
+    runTelemetry: (tenantId, runId) => client.getRunTelemetry(tenantId, runId),
+  },
+  (action, error) => {
+    state.error = describeAndLog(action, error);
+    render();
+  },
+);
+
 interface PageState {
   ready: HostReadyContext | null;
   connected: boolean;
@@ -77,9 +86,6 @@ interface PageState {
   prsCursor: string | null;
   runs: TenantRun[];
   runsCursor: string | null;
-  prDetails: Record<string, TenantPRDetailResponse>;
-  runFindings: Record<string, FindingState>;
-  runTelemetry: Record<string, TenantRunTelemetryResponse | null>;
   extraRun: TenantRun | null;
   sessionLinks: Record<string, SessionLink>;
   detectedRepo: string;
@@ -98,9 +104,6 @@ const state: PageState = {
   prsCursor: null,
   runs: [],
   runsCursor: null,
-  prDetails: {},
-  runFindings: {},
-  runTelemetry: {},
   extraRun: null,
   sessionLinks: {},
   detectedRepo: "",
@@ -194,9 +197,10 @@ async function load(): Promise<void> {
 
     state.context = context;
     state.preferences = await loadPreferences();
-    if (state.preferences.openTenantId) {
-      state.preferences = await savePreferences({ openTenantId: null });
-    }
+    // The persisted detail pin belongs to the pointer, not to this surface:
+    // wiping it here would break the panel's restart-restore contract. The
+    // page works in the active tenant, and its own openers clear the pin
+    // explicitly when the user navigates.
 
     if (!state.detectedRepo && state.ready?.directory) {
       state.detectedRepo = await resolveRepoFromDirectory(state.ready.directory, (path) =>
@@ -661,47 +665,16 @@ async function closeDetail(): Promise<void> {
 
 function ensurePRDetail(key: string): void {
   const tenantId = state.context?.tenantId;
-  if (!tenantId || state.prDetails[key]) return;
+  if (!tenantId) return;
   const pr = parsePRRef(key);
   if (!pr) return;
-  void client
-    .getPRDetail(tenantId, pr.owner, pr.repo, pr.number)
-    .then((detail) => {
-      state.prDetails[key] = detail;
-      render();
-    })
-    .catch((error: unknown) => {
-      state.error = describeAndLog("Open pull request", error);
-      render();
-    });
+  store.ensurePRDetail(tenantId, pr.owner, pr.repo, pr.number);
 }
 
 function ensureRunData(runId: string): void {
   const tenantId = state.context?.tenantId;
   if (!tenantId) return;
-  if (state.runFindings[runId]) return;
-  state.runFindings[runId] = { loading: true, error: null };
-  void client
-    .getRunFindings(tenantId, runId)
-    .then((items) => {
-      state.runFindings[runId] = { loading: false, error: null, items };
-      render();
-    })
-    .catch((error: unknown) => {
-      state.runFindings[runId] = { loading: false, error: describeAndLog("Load findings", error) };
-      render();
-    });
-  if (state.runTelemetry[runId] !== undefined) return;
-  state.runTelemetry[runId] = null;
-  void client
-    .getRunTelemetry(tenantId, runId)
-    .then((telemetry) => {
-      state.runTelemetry[runId] = telemetry;
-      render();
-    })
-    .catch(() => {
-      state.runTelemetry[runId] = null;
-    });
+  store.ensureRunData(tenantId, runId);
 }
 
 function prSessions(key: string): Array<[string, SessionLink]> {
@@ -734,8 +707,8 @@ function renderPreview(): HTMLElement {
     preview.append(
       runDetailScaffold({
         run,
-        findings: state.runFindings[run.id] ?? null,
-        telemetry: state.runTelemetry[run.id] ?? null,
+        findings: store.findings(tenantId, run.id),
+        telemetry: store.telemetry(tenantId, run.id),
         feedback: {
           onSubmit: (input) => client.postFeedback(tenantId, run.id, input).then(() => undefined),
         },
@@ -761,7 +734,7 @@ function renderPreview(): HTMLElement {
   }
 
   const key = state.preferences.openPR;
-  const detail = key ? state.prDetails[key] : undefined;
+  const detail = key && tenantId ? store.prDetail(tenantId, key) : undefined;
   if (!key || !detail) {
     if (key) ensurePRDetail(key);
     const holder = el("div", { style: "flex:1; display:flex; align-items:center;" });
@@ -794,7 +767,8 @@ function renderPreview(): HTMLElement {
           void requestReview(client, tenantId, prRef.owner, prRef.repo, prRef.number).then(
             (accepted) => {
               if (!accepted) return;
-              delete state.prDetails[key];
+              // A fresh review makes the cached aggregate stale.
+              store.dropPRDetail(tenantId, key);
               void load();
             },
           );
@@ -810,7 +784,7 @@ async function startSessionFromRun(run: TenantRun): Promise<void> {
   const tenantId = state.context?.tenantId;
   if (!tenantId) return;
   const key = prKey(run.owner, run.repo, run.pr_number);
-  const detail = state.prDetails[key];
+  const detail = store.prDetail(tenantId, key);
   const target: PRChipTarget = detail
     ? { pr: detail.pr, tenantId, findings: detail.findings }
     : {
@@ -837,15 +811,15 @@ async function switchTenant(tenantId: string): Promise<void> {
   });
   state.prs = [];
   state.runs = [];
-  state.prDetails = {};
-  state.runFindings = {};
-  state.runTelemetry = {};
   state.extraRun = null;
+  store.clear();
   await invalidateBootstrapCache();
   await load();
 }
 
 /* ------------------------------------------------------------------- host */
+
+store.onRender(() => render());
 
 host.onReady((ctx) => {
   applyHostReady(ctx, document.documentElement);
@@ -883,9 +857,7 @@ async function onDisconnect(): Promise<void> {
   state.context = null;
   state.prs = [];
   state.runs = [];
-  state.prDetails = {};
-  state.runFindings = {};
-  state.runTelemetry = {};
+  store.clear();
   render();
 }
 
