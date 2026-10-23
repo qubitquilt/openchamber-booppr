@@ -77,19 +77,6 @@ export function repoFromGitConfig(config: string): string {
 }
 
 /**
- * The repo name a `owner/repo` filter carries to the server. The receiver's
- * `repo` query param is the name alone; an empty filter means "every repo"
- * and must reach the server as no filter at all, never as a client-side
- * comparison against the empty string.
- */
-export function repoNameOf(filter: string): string {
-  const trimmed = filter.trim();
-  if (!trimmed) return "";
-  const slash = trimmed.lastIndexOf("/");
-  return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
-}
-
-/**
  * The `gitdir:` value of a worktree's `.git` pointer file, or "" for a normal
  * checkout (where `.git` is a directory and the read fails).
  */

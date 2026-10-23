@@ -129,6 +129,17 @@ function statusLabel(status: number): string {
 const RATE_LIMIT_RETRIES = 2;
 const RATE_LIMIT_BACKOFF_MS = 800;
 
+/**
+ * A 401 the surfaces should answer with the sign-in view instead of a retry
+ * banner. Two shapes arrive as 401: a session the receiver rejected after the
+ * service's refresh-on-use already ran, and the service's signed-out
+ * `DISCONNECTED` envelope, which is a 401 emitted before any receiver call.
+ * Both mean only a fresh sign-in helps; every other code stays a banner.
+ */
+export function isSessionExpired(error: unknown): boolean {
+  return error instanceof BoopError && (error.code === "SESSION_EXPIRED" || error.status === 401);
+}
+
 export interface RunListOptions {
   owner?: string;
   repo?: string;

@@ -2,6 +2,7 @@ import { host } from "./host";
 import { read, write } from "./storage";
 import type { RunStatus, ReviewStatus } from "./constants";
 import { RUN_STATUSES, REVIEW_STATUSES } from "./constants";
+import { sanitizeRepoFilter } from "./repo-filter";
 import { sanitizeSessionLinks, pruneSessionLinks, type SessionLink } from "./session-links";
 
 /** Selection persisted between surfaces, kept in the extension's own storage. */
@@ -22,6 +23,8 @@ export interface Preferences {
   openRunId: string | null;
   /** PR shown in the page's detail pane, as `owner/repo#number`. */
   openPR: string | null;
+  /** The tenant the open detail was pinned to, when opened from a chip. */
+  openTenantId: string | null;
   /** Whether "Start session" creates a worktree, like Linear's toggle. */
   createInWorktree: boolean;
   /** Re-run a Boop review automatically when a linked session completes. */
@@ -40,6 +43,7 @@ const DEFAULTS: Preferences = {
   view: "prs",
   openRunId: null,
   openPR: null,
+  openTenantId: null,
   createInWorktree: false,
   autoRereview: false,
 };
@@ -57,13 +61,16 @@ function sanitize(raw: unknown): Preferences {
   return {
     tenantId: typeof value.tenantId === "string" ? value.tenantId : "",
     serverUrl: typeof value.serverUrl === "string" ? value.serverUrl : "",
-    repoFilter: typeof value.repoFilter === "string" ? value.repoFilter : "",
+    // The filter grammar lives in repo-filter.ts; junk never reaches a fetch.
+    repoFilter: sanitizeRepoFilter(value.repoFilter),
     runStatusFilter: knownRun ? (runStatus as RunStatus | "any") : "any",
     reviewStatusFilter: knownReview ? (reviewStatus as ReviewStatus | "any") : "any",
     mineOnly: value.mineOnly === true,
     view: value.view === "runs" ? "runs" : "prs",
     openRunId: typeof value.openRunId === "string" ? value.openRunId : null,
     openPR: typeof value.openPR === "string" ? value.openPR : null,
+    openTenantId:
+      typeof value.openTenantId === "string" && value.openTenantId ? value.openTenantId : null,
     createInWorktree: value.createInWorktree === true,
     autoRereview: value.autoRereview === true,
   };

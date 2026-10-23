@@ -1,5 +1,4 @@
 import { API_ORIGIN } from "./constants";
-import { BoopError } from "./client";
 import { host } from "./host";
 import { loadPreferences, savePreferences } from "./preferences";
 import { deleteStorage, read, write } from "./storage";
@@ -27,15 +26,6 @@ export class NoTenantError extends Error {
     super("This account has no Boop tenant membership yet.");
     this.name = "NoTenantError";
   }
-}
-
-/**
- * A 401 that survived the service's refresh-on-use: the session is dead and
- * only a fresh sign-in helps. Surfaces route this to the sign-in view instead
- * of a Retry banner that would 401 forever.
- */
-export function isSessionExpired(error: unknown): boolean {
-  return error instanceof BoopError && (error.code === "SESSION_EXPIRED" || error.status === 401);
 }
 
 /**

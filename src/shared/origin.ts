@@ -18,11 +18,9 @@ export function normalizeOrigin(value: unknown): string {
   try {
     const url = new URL(value.trim());
     const hostname = url.hostname;
-    const loopback =
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "::1" ||
-      hostname === "[::1]";
+    // `URL.hostname` brackets IPv6 hosts, so the bracketed form is the one
+    // that can match; a bare `::1` never parses as a host at all.
+    const loopback = hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
     if (url.protocol !== (loopback ? "http:" : "https:")) return "";
     if (url.username || url.password) return "";
     if (url.pathname !== "/" && url.pathname !== "") return "";

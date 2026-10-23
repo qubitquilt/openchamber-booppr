@@ -15,8 +15,9 @@ builds and tests.
 ```
 src/shared/     code every surface shares: the API client, the service transport and sign-in,
                 chip builders, preferences, stylesheet, storage helpers (`storage.ts`), error
-                formatting (`errors.ts`), the tenant bootstrap (`tenants.ts`), and the pure
-                git-remote resolver (`repo.ts`)
+                formatting and load-error routing (`errors.ts`), the tenant bootstrap
+                (`tenants.ts`), the git-remote resolver (`repo.ts`), the repo filter grammar
+                (`repo-filter.ts`), and the one bare-origin rule (`origin.ts`)
 src/service/    the local service      -> service/main.js (Node)
 src/panel/      the rail panel        -> panel/main.js
 src/page/       the full-screen page  -> panel/page.js
@@ -28,8 +29,10 @@ scripts/        the manifest check
 ```
 
 `src/shared/` must stay free of DOM-at-import-time work if you want it testable: `client.ts`,
-`format.ts`, `repo.ts` and `session-links.ts` are bundled separately for `npm test` and run under
-Node.
+`errors.ts`, `format.ts`, `repo.ts`, `repo-filter.ts`, `origin.ts`, `storage.ts` and
+`session-links.ts` are bundled separately for `npm test` and run under Node (with `--splitting`, so
+`instanceof` holds across the bundles). `tenants.ts` and `preferences.ts` import `host`, so they
+stay out of the test bundle.
 
 `src/service/` is the only Node code. It is typechecked by `tsconfig.service.json` (which turns on
 `@types/node`), not the surface `tsconfig.json` (which deliberately has `types: []`). It imports
@@ -66,9 +69,9 @@ integration card; it cannot work.
 - Errors from the API surface as a banner or a toast, never as a silent blank screen. `describe()`
   turns any thrown value into one line of text; toasts carry the action and the error code, with
   the full message on the console.
-- Tests cover the pure modules (`client.ts`, `format.ts`, `repo.ts`, `session-links.ts`) and the
-  service's loopback contract. Anything that needs the host is verified by opening the surface in
-  OpenChamber, not by a unit test.
+- Tests cover the pure modules (`client.ts`, `errors.ts`, `format.ts`, `repo.ts`, `repo-filter.ts`,
+  `origin.ts`, `session-links.ts`, `storage.ts`) and the service's loopback contract. Anything that
+  needs the host is verified by opening the surface in OpenChamber, not by a unit test.
 
 ## Trust boundaries
 

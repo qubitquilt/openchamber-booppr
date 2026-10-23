@@ -1,4 +1,4 @@
-import { BoopError } from "./client";
+import { BoopError, isSessionExpired } from "./client";
 
 /** One line describing any thrown value, for a banner or a toast. */
 export function describe(error: unknown): string {
@@ -11,4 +11,22 @@ export function describe(error: unknown): string {
 export function describeAndLog(action: string, error: unknown): string {
   console.error(`${action} failed:`, error);
   return describe(error);
+}
+
+/**
+ * The outcome a surface's load should render: the sign-in view for a dead
+ * session, a retry banner with one line for everything else. Shared by the
+ * panel, the page and the picker so the routing decision lives once.
+ */
+export interface LoadOutcome {
+  expired: boolean;
+  message: string | null;
+}
+
+export function classifyLoadError(error: unknown): LoadOutcome {
+  if (isSessionExpired(error)) return { expired: true, message: null };
+  return {
+    expired: false,
+    message: `Could not reach Boop. ${describeAndLog("Reach Boop", error)}`,
+  };
 }

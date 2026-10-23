@@ -11,8 +11,8 @@ import {
   mountTabs,
 } from "@openchamber/sdk/ui";
 
-import { createBoopClient, type BoopError } from "../shared/client";
-import { describeAndLog } from "../shared/errors";
+import { createBoopClient } from "../shared/client";
+import { classifyLoadError, describeAndLog } from "../shared/errors";
 import {
   RUN_STATUSES,
   REVIEW_STATUSES,
@@ -31,11 +31,12 @@ import {
   attachRunChip,
   composePRChip,
   reportFailure,
+  requestReview,
   startSessionForPR,
   type PRChipTarget,
 } from "../shared/attachments";
 import { prDetailScaffold, runDetailScaffold, type FindingState } from "../shared/detail";
-import { prKey, prTitle } from "../shared/format";
+import { parsePRRef, prKey, prTitle } from "../shared/format";
 import {
   loadPreferences,
   loadSessionLinks,
@@ -45,6 +46,7 @@ import {
 import { installStyles } from "../shared/styles";
 import { watchSessionLifecycle } from "../shared/lifecycle";
 import { renderPRRow, renderRunRow } from "../shared/list-row";
+import { repoMatchesFilter } from "../shared/repo-filter";
 import { resolveRepoFromDirectory } from "../shared/repo";
 import { boopWordmark } from "../shared/logo";
 import type { SessionLink } from "../shared/session-links";
@@ -54,12 +56,7 @@ import type {
   TenantRun,
   TenantRunTelemetryResponse,
 } from "../shared/types";
-import {
-  bootstrap,
-  invalidateBootstrapCache,
-  isSessionExpired,
-  type TenantContext,
-} from "../shared/tenants";
+import { bootstrap, invalidateBootstrapCache, type TenantContext } from "../shared/tenants";
 
 /**
  * The full-screen dashboard from the Extension pages menu. A master-detail
@@ -117,6 +114,7 @@ const state: PageState = {
     view: "prs",
     openRunId: null,
     openPR: null,
+    openTenantId: null,
     createInWorktree: false,
     autoRereview: false,
   },
@@ -146,7 +144,7 @@ function repoOptions(): Array<{ id: string; label: string }> {
 }
 
 function prMatches(pr: TenantPR): boolean {
-  if (state.preferences.repoFilter && repoOfPR(pr) !== state.preferences.repoFilter) return false;
+  if (!repoMatchesFilter(repoOfPR(pr), state.preferences.repoFilter)) return false;
   if (
     state.preferences.reviewStatusFilter !== "any" &&
     pr.review_status !== state.preferences.reviewStatusFilter
@@ -162,7 +160,7 @@ function prMatches(pr: TenantPR): boolean {
 }
 
 function runMatches(run: TenantRun): boolean {
-  if (state.preferences.repoFilter && repoOfRun(run) !== state.preferences.repoFilter) return false;
+  if (!repoMatchesFilter(repoOfRun(run), state.preferences.repoFilter)) return false;
   if (
     state.preferences.runStatusFilter !== "any" &&
     run.status !== state.preferences.runStatusFilter
@@ -196,6 +194,9 @@ async function load(): Promise<void> {
 
     state.context = context;
     state.preferences = await loadPreferences();
+    if (state.preferences.openTenantId) {
+      state.preferences = await savePreferences({ openTenantId: null });
+    }
 
     if (!state.detectedRepo && state.ready?.directory) {
       state.detectedRepo = await resolveRepoFromDirectory(state.ready.directory, (path) =>
@@ -236,16 +237,16 @@ async function load(): Promise<void> {
   } catch (error) {
     if (token !== renderToken) return;
     state.loading = false;
-    if (isSessionExpired(error)) {
-      // The service already tried refresh-on-use; the session is dead. Back
-      // to sign-in instead of a Retry banner that would 401 forever.
+    const outcome = classifyLoadError(error);
+    if (outcome.expired) {
+      // The session is dead; back to sign-in instead of a Retry banner.
       state.connected = false;
       state.context = null;
       accountsResolved = true;
       render();
       return;
     }
-    state.error = `Could not reach Boop. ${describeAndLog("Reach Boop", error)}`;
+    state.error = outcome.message;
     render();
   }
 }
@@ -641,33 +642,27 @@ function statusMenu(
 
 /* ----------------------------------------------------------------- detail */
 
-function parsePRKey(key: string): { owner: string; repo: string; number: number } | null {
-  const match = /^([^/]+)\/([^/]+)#(\d+)$/.exec(key);
-  if (!match) return null;
-  return { owner: match[1] ?? "", repo: match[2] ?? "", number: Number(match[3]) };
-}
-
 async function openPRDetail(key: string): Promise<void> {
-  state.preferences = await savePreferences({ openPR: key, openRunId: null });
+  state.preferences = await savePreferences({ openPR: key, openRunId: null, openTenantId: null });
   render();
   ensurePRDetail(key);
 }
 
 async function openRunDetail(runId: string): Promise<void> {
-  state.preferences = await savePreferences({ openRunId: runId, openPR: null });
+  state.preferences = await savePreferences({ openRunId: runId, openPR: null, openTenantId: null });
   render();
   ensureRunData(runId);
 }
 
 async function closeDetail(): Promise<void> {
-  state.preferences = await savePreferences({ openRunId: null, openPR: null });
+  state.preferences = await savePreferences({ openRunId: null, openPR: null, openTenantId: null });
   render();
 }
 
 function ensurePRDetail(key: string): void {
   const tenantId = state.context?.tenantId;
   if (!tenantId || state.prDetails[key]) return;
-  const pr = parsePRKey(key);
+  const pr = parsePRRef(key);
   if (!pr) return;
   void client
     .getPRDetail(tenantId, pr.owner, pr.repo, pr.number)
@@ -754,7 +749,11 @@ function renderPreview(): HTMLElement {
           void attachRunChip({ run, tenantId }).catch((e) => reportFailure("Attach", e)),
         githubUrl: `https://github.com/${run.owner}/${run.repo}/pull/${run.pr_number}`,
         onTriggerReview: () =>
-          void triggerReview(run.owner, run.repo, run.pr_number).then(() => load()),
+          void requestReview(client, tenantId, run.owner, run.repo, run.pr_number).then(
+            (accepted) => {
+              if (accepted) void load();
+            },
+          ),
         onBack: () => void closeDetail(),
       }),
     );
@@ -774,7 +773,7 @@ function renderPreview(): HTMLElement {
     return preview;
   }
 
-  const prRef = parsePRKey(key);
+  const prRef = parsePRRef(key);
   const target: PRChipTarget = { pr: detail.pr, tenantId, findings: detail.findings };
   preview.append(
     prDetailScaffold({
@@ -792,10 +791,13 @@ function renderPreview(): HTMLElement {
       githubUrl: `https://github.com/${detail.pr.owner}/${detail.pr.repo}/pull/${detail.pr.pr_number}`,
       onTriggerReview: () => {
         if (prRef)
-          void triggerReview(prRef.owner, prRef.repo, prRef.number).then(() => {
-            delete state.prDetails[key];
-            void load();
-          });
+          void requestReview(client, tenantId, prRef.owner, prRef.repo, prRef.number).then(
+            (accepted) => {
+              if (!accepted) return;
+              delete state.prDetails[key];
+              void load();
+            },
+          );
       },
       onBack: () => void closeDetail(),
     }),
@@ -825,44 +827,14 @@ async function startSessionFromRun(run: TenantRun): Promise<void> {
   await startSessionForPR(target, { worktree: state.preferences.createInWorktree });
 }
 
-/** Trigger an on-demand review and tell the user what the receiver said. */
-async function triggerReview(owner: string, repo: string, number: number): Promise<void> {
-  const tenantId = state.context?.tenantId;
-  if (!tenantId) return;
-  try {
-    const response = await client.triggerReview(tenantId, owner, repo, number);
-    if (response.status === "duplicate") {
-      await host.toast({
-        kind: "info",
-        message: `Boop already reviewed the latest head of ${prKey(owner, repo, number)}.`,
-        dismiss: true,
-      });
-    } else if (response.run_id) {
-      await host.toast({ kind: "success", message: `Review accepted: ${response.run_id}.` });
-    } else {
-      await host.toast({
-        kind: "success",
-        message: `Review of ${prKey(owner, repo, number)} queued.`,
-      });
-    }
-    await invalidateBootstrapCache();
-  } catch (error) {
-    const code = (error as BoopError)?.code;
-    if (code === "RATE_LIMITED") {
-      await host.toast({
-        kind: "error",
-        message: "The tenant's review rate limit is spent for now. Try again later.",
-        dismiss: true,
-      });
-      return;
-    }
-    await reportFailure("Request review", error);
-  }
-}
-
 async function switchTenant(tenantId: string): Promise<void> {
   if (tenantId === state.context?.tenantId) return;
-  state.preferences = await savePreferences({ tenantId, openRunId: null, openPR: null });
+  state.preferences = await savePreferences({
+    tenantId,
+    openRunId: null,
+    openPR: null,
+    openTenantId: null,
+  });
   state.prs = [];
   state.runs = [];
   state.prDetails = {};

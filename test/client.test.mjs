@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { BoopError, createBoopClient } from "../build/client.mjs";
+import { BoopError, createBoopClient, isSessionExpired } from "../build/client.mjs";
+import { classifyLoadError } from "../build/errors.mjs";
 
 /** Record every request and answer from a routing table. */
 function stub(routes) {
@@ -154,4 +155,24 @@ test("meTenants unwraps the response", async () => {
   });
   const client = createBoopClient(request);
   assert.deepEqual(await client.meTenants(), [{ id: "acme", role: "member" }]);
+});
+
+test("isSessionExpired routes 401s to sign-in and leaves the rest alone", () => {
+  // A dead session after refresh-on-use ran, and the service's signed-out
+  // envelope, are both 401s only a fresh sign-in helps.
+  assert.equal(isSessionExpired(new BoopError(401, "SESSION_EXPIRED", "expired")), true);
+  assert.equal(isSessionExpired(new BoopError(401, "DISCONNECTED", "Not connected.")), true);
+  assert.equal(isSessionExpired(new BoopError(403, "FORBIDDEN", "forbidden")), false);
+  assert.equal(isSessionExpired(new BoopError(500, "HTTP_500", "boom")), false);
+  assert.equal(isSessionExpired(new Error("plain")), false);
+  assert.equal(isSessionExpired(undefined), false);
+});
+
+test("classifyLoadError splits the sign-in route from the retry banner", () => {
+  const expired = classifyLoadError(new BoopError(401, "SESSION_EXPIRED", "expired"));
+  assert.deepEqual(expired, { expired: true, message: null });
+
+  const refused = classifyLoadError(new BoopError(403, "FORBIDDEN", "forbidden"));
+  assert.equal(refused.expired, false);
+  assert.match(refused.message ?? "", /^Could not reach Boop\. FORBIDDEN: forbidden$/);
 });

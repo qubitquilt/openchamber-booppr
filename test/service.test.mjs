@@ -199,6 +199,68 @@ test("forwards to the stored origin with the session cookie attached", async () 
   }
 });
 
+test("forwards a POST with its method, body and content type", async () => {
+  // The write path `triggerReview` rides. A service that hardcoded GET or
+  // dropped the body would keep a GET-only suite green, so this pins the
+  // method, the body bytes and the content type the service attaches.
+  const { writeFile, mkdir } = await import("node:fs/promises");
+  const seen = { method: "", path: "", cookie: "", contentType: "", body: "" };
+  const upstream = createHttpServer((request, response) => {
+    seen.method = request.method ?? "";
+    seen.path = request.url ?? "";
+    seen.cookie = String(request.headers.cookie ?? "");
+    seen.contentType = String(request.headers["content-type"] ?? "");
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      seen.body = Buffer.concat(chunks).toString("utf8");
+      response.writeHead(202, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ run_id: "run-9", status: "queued" }));
+    });
+  });
+  await new Promise((done) => upstream.listen(0, "127.0.0.1", done));
+  const upstreamAddress = upstream.address();
+  const upstreamPort =
+    typeof upstreamAddress === "object" && upstreamAddress ? upstreamAddress.port : 0;
+  try {
+    const authDir = join(configHome, "openchamber-booppr");
+    await mkdir(authDir, { recursive: true });
+    await writeFile(
+      join(authDir, "auth.json"),
+      JSON.stringify({
+        origin: `http://127.0.0.1:${upstreamPort}`,
+        slug: "acme",
+        jwt: "session-jwt",
+        role: "member",
+        account: "",
+        expiresAt: "",
+        savedAt: 1,
+      }),
+    );
+    const response = await fetch(url("/forward"), {
+      method: "POST",
+      headers: { ...auth, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        method: "POST",
+        path: "/api/tenants/acme/prs/own/repo/9/review",
+        body: "{}",
+      }),
+    });
+    assert.equal(response.status, 200);
+    const envelope = await response.json();
+    assert.equal(envelope.status, 202);
+    assert.deepEqual(JSON.parse(envelope.body), { run_id: "run-9", status: "queued" });
+
+    assert.equal(seen.method, "POST");
+    assert.equal(seen.path, "/api/tenants/acme/prs/own/repo/9/review");
+    assert.equal(seen.cookie, "boop_session=session-jwt");
+    assert.equal(seen.contentType, "application/json");
+    assert.equal(seen.body, "{}");
+  } finally {
+    await new Promise((done) => upstream.close(done));
+  }
+});
+
 test("refuses a forward path that is not a path", async () => {
   const response = await fetch(url("/forward"), {
     method: "POST",

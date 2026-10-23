@@ -11,7 +11,7 @@ import {
 } from "@openchamber/sdk/ui";
 
 import { createBoopClient } from "../shared/client";
-import { describeAndLog } from "../shared/errors";
+import { classifyLoadError, describeAndLog } from "../shared/errors";
 import {
   RUN_LABEL,
   REVIEW_LABEL,
@@ -39,8 +39,9 @@ import {
 } from "../shared/detail";
 import { firstPRRefIn, prKey, prTitle, relativeTimeOf } from "../shared/format";
 import { installStyles } from "../shared/styles";
+import { repoMatchesFilter } from "../shared/repo-filter";
 import type { TenantPR, TenantPRDetailResponse, TenantRun } from "../shared/types";
-import { bootstrap, isSessionExpired, type TenantContext } from "../shared/tenants";
+import { bootstrap, type TenantContext } from "../shared/tenants";
 
 /**
  * The picker behind the composer's + menu, shaped like OpenChamber's reference
@@ -164,7 +165,7 @@ function visiblePRs(): TenantPR[] {
   const needle = state.search.trim().toLowerCase();
   return source.filter(
     (pr) =>
-      (!state.repoFilter || repoOfPR(pr) === state.repoFilter) &&
+      repoMatchesFilter(repoOfPR(pr), state.repoFilter) &&
       (!needle ||
         prTitle(pr).toLowerCase().includes(needle) ||
         prKey(pr.owner, pr.repo, pr.pr_number).toLowerCase().includes(needle)),
@@ -176,7 +177,7 @@ function visibleRuns(): TenantRun[] {
   const needle = state.search.trim().toLowerCase();
   return source.filter(
     (run) =>
-      (!state.repoFilter || repoOfRun(run) === state.repoFilter) &&
+      repoMatchesFilter(repoOfRun(run), state.repoFilter) &&
       (state.statusFilter === "any" || run.status === state.statusFilter) &&
       (!needle ||
         `${run.owner}/${run.repo}#${run.pr_number}`.toLowerCase().includes(needle) ||
@@ -211,9 +212,9 @@ async function load(): Promise<void> {
   } catch (error) {
     if (token !== renderToken) return;
     state.loading = false;
-    if (isSessionExpired(error)) {
-      // The service already tried refresh-on-use; the session is dead. Back
-      // to sign-in instead of a Retry banner that would 401 forever.
+    const outcome = classifyLoadError(error);
+    if (outcome.expired) {
+      // The session is dead; back to sign-in instead of a Retry banner.
       state.connected = false;
       state.context = null;
       accountsResolved = true;
@@ -221,7 +222,7 @@ async function load(): Promise<void> {
       render();
       return;
     }
-    state.error = `Could not reach Boop. ${describeAndLog("Reach Boop", error)}`;
+    state.error = outcome.message;
     render();
   }
 }
