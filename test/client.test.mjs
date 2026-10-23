@@ -173,6 +173,13 @@ test("classifyLoadError splits the sign-in route from the retry banner", () => {
   // The expired arm carries no message: there is no banner to render.
   assert.deepEqual(expired, { expired: true });
 
+  // The signed-out envelope is the other 401 shape the surfaces see, and it
+  // routes the same way: sign in, not retry.
+  assert.deepEqual(
+    classifyLoadError(new BoopError(401, "DISCONNECTED", "Not connected. Sign in to Boop.")),
+    { expired: true },
+  );
+
   const refused = classifyLoadError(new BoopError(403, "FORBIDDEN", "forbidden"));
   assert.deepEqual(refused, {
     expired: false,

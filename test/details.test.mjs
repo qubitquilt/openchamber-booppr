@@ -103,6 +103,90 @@ test("findings cache the error text inline; telemetry caches null", async () => 
   assert.equal(errors.length, before);
 });
 
+test("a drop mid-flight discards the late answer", async () => {
+  // The documented kill: a fetch started, dropped before it settles, and its
+  // answer arriving anyway must not land in the cache.
+  const calls = [];
+  let releaseFirst;
+  const { store, renders } = makeStore({
+    prDetail: async (tenantId, owner, repo, number) => {
+      calls.push(`pr ${tenantId} ${owner}/${repo}#${number}`);
+      if (calls.length === 1) {
+        return new Promise((done) => {
+          releaseFirst = () =>
+            done({ pr: { owner, repo, pr_number: number }, runs: [], findings: [] });
+        });
+      }
+      return { pr: { owner, repo, pr_number: number }, runs: [], findings: [] };
+    },
+    runFindings: async () => [],
+    runTelemetry: async (runId) => ({
+      run_id: runId,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      cache_read_tokens: 0,
+      cost_usd: 0,
+      step_count: 0,
+      lenses: [],
+    }),
+  });
+
+  store.ensurePRDetail("t1", "o", "r", 9);
+  store.dropPRDetail("t1", "o/r#9");
+  releaseFirst();
+  await new Promise((done) => setTimeout(done, 0));
+
+  assert.equal(store.prDetail("t1", "o/r#9"), undefined);
+  assert.equal(renders.length, 1, "only the drop repaints; the late answer is silent");
+
+  // A fresh ensure after the kill refetches and lands normally.
+  store.ensurePRDetail("t1", "o", "r", 9);
+  await new Promise((done) => setTimeout(done, 0));
+  assert.equal(store.prDetail("t1", "o/r#9")?.pr.pr_number, 9);
+  assert.deepEqual(calls, ["pr t1 o/r#9", "pr t1 o/r#9"]);
+});
+
+test("clear() kills in-flight fetches the way a drop does", async () => {
+  const calls = [];
+  let releaseFirst;
+  const { store } = makeStore({
+    prDetail: async (tenantId, owner, repo, number) => {
+      calls.push(`pr ${tenantId} ${owner}/${repo}#${number}`);
+      if (calls.length === 1) {
+        return new Promise((done) => {
+          releaseFirst = () =>
+            done({ pr: { owner, repo, pr_number: number }, runs: [], findings: [] });
+        });
+      }
+      return { pr: { owner, repo, pr_number: number }, runs: [], findings: [] };
+    },
+    runFindings: async () => [],
+    runTelemetry: async (runId) => ({
+      run_id: runId,
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      cache_read_tokens: 0,
+      cost_usd: 0,
+      step_count: 0,
+      lenses: [],
+    }),
+  });
+
+  store.ensurePRDetail("t1", "o", "r", 9);
+  store.clear();
+  releaseFirst();
+  await new Promise((done) => setTimeout(done, 0));
+
+  assert.equal(store.prDetail("t1", "o/r#9"), undefined);
+
+  store.ensurePRDetail("t1", "o", "r", 9);
+  await new Promise((done) => setTimeout(done, 0));
+  assert.equal(store.prDetail("t1", "o/r#9")?.pr.pr_number, 9);
+  assert.deepEqual(calls, ["pr t1 o/r#9", "pr t1 o/r#9"]);
+});
+
 test("clear() empties every tenant's caches", async () => {
   const { fetchers, calls } = stubFetchers();
   const { store } = makeStore(fetchers);

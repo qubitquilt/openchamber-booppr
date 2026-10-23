@@ -17,7 +17,6 @@ import {
 } from "./format";
 import type {
   FeedbackRequest,
-  TenantFinding,
   TenantRun,
   TenantRunStage,
   TenantRunTelemetryResponse,
@@ -29,13 +28,13 @@ import type { SessionLink } from "./session-links";
  * of the Linear issue view: a header bar, a title block, a metadata grid, the
  * body sections and a footer that starts sessions. Keeping them in one module
  * is what stops the surfaces drifting.
+ *
+ * `FindingState` is the store's type in `details.ts` — the store and the
+ * renderer share one declaration, so a field added to one cannot drift from
+ * the other. Re-exported for the surfaces, which import it from here.
  */
-
-export interface FindingState {
-  loading: boolean;
-  error: string | null;
-  items?: TenantFinding[];
-}
+import type { FindingState } from "./details";
+export type { FindingState };
 
 /** Attach a button with the shared loading and error handling. */
 function actionButton(

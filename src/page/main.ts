@@ -724,7 +724,11 @@ function renderPreview(): HTMLElement {
         onTriggerReview: () =>
           void requestReview(client, tenantId, run.owner, run.repo, run.pr_number).then(
             (accepted) => {
-              if (accepted) void load();
+              if (!accepted) return;
+              // A fresh review makes the run's PR aggregate stale, the same
+              // rule the panel's runs branch follows.
+              store.dropPRDetail(tenantId, prKey(run.owner, run.repo, run.pr_number));
+              void load();
             },
           ),
         onBack: () => void closeDetail(),

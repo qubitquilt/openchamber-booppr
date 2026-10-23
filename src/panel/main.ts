@@ -92,7 +92,6 @@ interface PanelState {
   prsCursor: string | null;
   runs: TenantRun[];
   runsCursor: string | null;
-  /** Details fetched for a click or a chip, keyed by `owner/repo#n` / run id. */
   /** A run fetched for a chip click that is not on the loaded page. */
   extraRun: TenantRun | null;
   /** Session links, loaded once per render cycle for the PR details. */
