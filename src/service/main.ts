@@ -12,7 +12,7 @@
  * the cookie attached. The panel reaches it only through `host.serviceRequest`.
  *
  * The receiver to talk to comes from the panel per sign-in (the sign-in view's
- * server URL field), defaulting to `API_ORIGIN`. It is stored with the token,
+ * server URL field), defaulting to `TENANT_ORIGIN`. It is stored with the token,
  * so every later call goes to the receiver the session was minted against.
  *
  * Contract (`GUEST_SERVICES.md`): bind `OPENCHAMBER_SERVICE_PORT` on 127.0.0.1,
@@ -25,14 +25,14 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { API_ORIGIN, OAUTH_CLIENT_ID } from "../shared/constants";
+import { TENANT_ORIGIN, OAUTH_CLIENT_ID } from "../shared/constants";
 import { normalizeOrigin } from "../shared/origin";
 
 const PORT = Number(process.env.OPENCHAMBER_SERVICE_PORT ?? "");
 const SERVICE_TOKEN = process.env.OPENCHAMBER_SERVICE_TOKEN ?? "";
 
 /** The bundled receiver when the panel names none. */
-const DEFAULT_ORIGIN = API_ORIGIN;
+const DEFAULT_ORIGIN = TENANT_ORIGIN;
 
 /** A human completing GitHub OAuth, possibly with 2FA, inside five minutes. */
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
@@ -488,8 +488,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
       if (!origin) {
         send(response, 400, {
           error: "bad-origin",
-          message:
-            "The server URL must be an https origin, like https://app.booppr.com (http is allowed for localhost only).",
+          message: `The server URL must be an https origin, like ${TENANT_ORIGIN} (http is allowed for localhost only).`,
         });
         return;
       }

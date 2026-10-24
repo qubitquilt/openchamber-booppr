@@ -43,7 +43,7 @@ sign-in field can never accept a URL the service then rejects.
 
 ## Changing the Boop receiver
 
-`API_ORIGIN` in `src/shared/constants.ts` is the service's build-time default origin and the
+`TENANT_ORIGIN` in `src/shared/constants.ts` is the service's build-time default origin and the
 receiver the sign-in view falls back to. It must be the receiver's tenant origin
 (`https://app.booppr.com`), the one that serves `/auth/*` and `/api/*` same-origin: the sign-in's
 OAuth state and CLI-hand-off cookies are host-only and GitHub's callback is fixed at
@@ -52,6 +52,9 @@ guarantees the receiver's "invalid state". A user can point the panel at another
 through the sign-in view's **Receiver URL** field (persisted as `serverUrl` in preferences,
 validated by `parseServerUrl` in `src/shared/tenants.ts`). The origin is stored with the session
 JWT and reused for every later call; the service re-validates it (`normalizeOrigin`) before use.
+The sign-in view also clears a stored `serverUrl` that still holds the pre-fix default
+(`LEGACY_API_ORIGIN`, the API host) when it loads, so a client upgraded across that change cannot
+restart the invalid-state bug silently.
 
 The receiver authenticates with a **session cookie**, not a bearer header, which is why this
 extension has no `contributes.integration`: no token card shape can send `Cookie: boop_session`.

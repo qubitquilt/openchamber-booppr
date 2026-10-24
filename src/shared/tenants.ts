@@ -1,4 +1,4 @@
-import { API_ORIGIN } from "./constants";
+import { TENANT_ORIGIN } from "./constants";
 import { host } from "./host";
 import { loadPreferences, savePreferences } from "./preferences";
 import { deleteStorage, read, write } from "./storage";
@@ -127,12 +127,12 @@ export function parseServerUrl(value: string | undefined): {
   error: string | null;
 } {
   const trimmed = value?.trim() ?? "";
-  if (!trimmed) return { origin: API_ORIGIN, error: null };
+  if (!trimmed) return { origin: TENANT_ORIGIN, error: null };
   const origin = normalizeOrigin(trimmed);
   if (origin) return { origin, error: null };
   return {
-    origin: API_ORIGIN,
-    error: "Enter an https origin, like https://app.booppr.com (http is allowed for localhost).",
+    origin: TENANT_ORIGIN,
+    error: `Enter an https origin, like ${TENANT_ORIGIN} (http is allowed for localhost).`,
   };
 }
 

@@ -102,6 +102,9 @@ test("refuses a sign-in origin that is not a bare origin", async () => {
   assert.equal(response.status, 400);
   const body = await response.json();
   assert.equal(body.error, "bad-origin");
+  // The example must name the tenant origin — the one host a login can
+  // complete on. The service builds it from TENANT_ORIGIN.
+  assert.match(body.message, /https:\/\/app\.booppr\.com/);
 });
 
 test("refuses a sign-in without a tenant slug", async () => {

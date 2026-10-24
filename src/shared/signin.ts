@@ -1,7 +1,9 @@
 import { mountBanner, mountButton, mountSpinner, mountTextField } from "@openchamber/sdk/ui";
 
+import { LEGACY_API_ORIGIN, TENANT_ORIGIN } from "./constants";
 import { el } from "./dom";
 import { host } from "./host";
+import { normalizeOrigin } from "./origin";
 import { loadPreferences, savePreferences } from "./preferences";
 import {
   describeServiceError,
@@ -56,11 +58,9 @@ export function mountSignIn(root: HTMLElement, onConnected: () => void): () => v
     mountTextField(urlHolder, {
       label: "Receiver URL",
       value: serverUrl,
-      placeholder: "https://app.booppr.com",
+      placeholder: TENANT_ORIGIN,
       mono: true,
-      ...(error
-        ? { error }
-        : { helper: "Optional. Defaults to the bundled tenant origin (not the API host)." }),
+      ...(error ? { error } : { helper: "Optional. Defaults to the bundled tenant origin." }),
       onChange: (value) => {
         serverUrl = value;
       },
@@ -94,6 +94,16 @@ export function mountSignIn(root: HTMLElement, onConnected: () => void): () => v
     if (!active(id)) return;
     serverUrl = preferences?.serverUrl ?? "";
     slug = preferences?.tenantId ?? "";
+    // A pre-fix client could have persisted the old default here — the
+    // dedicated API host. A login started there can never complete: the OAuth
+    // state cookie is host-only and GitHub's callback is fixed on the tenant
+    // origin, so the receiver answers "invalid state" with no hint why. Drop
+    // the stale value once and let the bundled tenant origin take over.
+    if (normalizeOrigin(serverUrl) === LEGACY_API_ORIGIN) {
+      serverUrl = "";
+      await savePreferences({ serverUrl: "" }).catch(() => undefined);
+      if (!active(id)) return;
+    }
     renderIdle();
   };
 

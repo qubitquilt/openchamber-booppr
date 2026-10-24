@@ -1,7 +1,7 @@
 /**
  * Values every surface and the service share.
  *
- * `API_ORIGIN` is the one source of truth for the Boop receiver. The service
+ * `TENANT_ORIGIN` is the one source of truth for the Boop receiver. The service
  * (`src/service/main.ts`) is the only place that reaches it, for the sign-in
  * and every forwarded call, so retargeting the extension means changing this
  * one line and rebuilding.
@@ -15,7 +15,17 @@
  * proxies both `/api/*` and `/auth/*` to the receiver, so it serves the
  * session calls too.
  */
-export const API_ORIGIN = "https://app.booppr.com";
+export const TENANT_ORIGIN = "https://app.booppr.com";
+
+/**
+ * The pre-fix default, kept only so the sign-in view can recognize a
+ * `serverUrl` a pre-fix client persisted. A login started here can never
+ * complete — the OAuth state cookie is host-only and GitHub's callback is
+ * fixed on the tenant origin — so the receiver answers "invalid state". It is
+ * not a receiver; only the one-time migration in `src/shared/signin.ts` reads
+ * it.
+ */
+export const LEGACY_API_ORIGIN = "https://api.booppr.com";
 
 /**
  * The web console origin, used to build "open in the tenant console" links.
