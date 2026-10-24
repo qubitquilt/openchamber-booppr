@@ -3,8 +3,7 @@ import { mountBanner, mountButton, mountSpinner, mountTextField } from "@opencha
 import { TENANT_ORIGIN } from "./constants";
 import { el } from "./dom";
 import { host } from "./host";
-import { loadPreferences, savePreferences } from "./preferences";
-import { clearLegacyServerUrl } from "./server-url";
+import { loadPreferences, migrateServerUrl, savePreferences } from "./preferences";
 import {
   describeServiceError,
   pollSignIn,
@@ -92,13 +91,12 @@ export function mountSignIn(root: HTMLElement, onConnected: () => void): () => v
     clearTimer();
     const preferences = await loadPreferences().catch(() => null);
     if (!active(id)) return;
-    serverUrl = preferences?.serverUrl ?? "";
     slug = preferences?.tenantId ?? "";
     // A pre-fix client could have persisted the old default here — the
     // dedicated API host, where no login can complete. The migration in
-    // `server-url.ts` clears it and keeps the rest of the record; the field
-    // then shows the bundled tenant origin again.
-    if (await clearLegacyServerUrl(host.storage).catch(() => false)) serverUrl = "";
+    // `server-url.ts` clears it and answers the URL the field should show,
+    // so even a failed read cannot leave the API host pre-filled.
+    serverUrl = await migrateServerUrl().catch(() => "");
     if (!active(id)) return;
     renderIdle();
   };
