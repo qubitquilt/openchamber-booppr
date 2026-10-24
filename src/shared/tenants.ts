@@ -132,7 +132,7 @@ export function parseServerUrl(value: string | undefined): {
   if (origin) return { origin, error: null };
   return {
     origin: API_ORIGIN,
-    error: "Enter an https origin, like https://api.booppr.com (http is allowed for localhost).",
+    error: "Enter an https origin, like https://app.booppr.com (http is allowed for localhost).",
   };
 }
 

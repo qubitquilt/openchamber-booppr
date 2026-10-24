@@ -44,7 +44,11 @@ sign-in field can never accept a URL the service then rejects.
 ## Changing the Boop receiver
 
 `API_ORIGIN` in `src/shared/constants.ts` is the service's build-time default origin and the
-receiver the sign-in view falls back to. A user can point the panel at another receiver at runtime
+receiver the sign-in view falls back to. It must be the receiver's tenant origin
+(`https://app.booppr.com`), the one that serves `/auth/*` and `/api/*` same-origin: the sign-in's
+OAuth state and CLI-hand-off cookies are host-only and GitHub's callback is fixed at
+`/auth/callback`, so starting the flow on the API host (`https://api.booppr.com`, `/api/` only)
+guarantees the receiver's "invalid state". A user can point the panel at another receiver at runtime
 through the sign-in view's **Receiver URL** field (persisted as `serverUrl` in preferences,
 validated by `parseServerUrl` in `src/shared/tenants.ts`). The origin is stored with the session
 JWT and reused for every later call; the service re-validates it (`normalizeOrigin`) before use.

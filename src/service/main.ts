@@ -489,7 +489,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
         send(response, 400, {
           error: "bad-origin",
           message:
-            "The server URL must be an https origin, like https://api.booppr.com (http is allowed for localhost only).",
+            "The server URL must be an https origin, like https://app.booppr.com (http is allowed for localhost only).",
         });
         return;
       }

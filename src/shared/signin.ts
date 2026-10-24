@@ -56,9 +56,11 @@ export function mountSignIn(root: HTMLElement, onConnected: () => void): () => v
     mountTextField(urlHolder, {
       label: "Receiver URL",
       value: serverUrl,
-      placeholder: "https://api.booppr.com",
+      placeholder: "https://app.booppr.com",
       mono: true,
-      ...(error ? { error } : { helper: "Optional. Defaults to the bundled origin." }),
+      ...(error
+        ? { error }
+        : { helper: "Optional. Defaults to the bundled tenant origin (not the API host)." }),
       onChange: (value) => {
         serverUrl = value;
       },
