@@ -1,0 +1,10 @@
+node_modules/
+build/
+.DS_Store
+*.log
+
+# Local screenshots and other OpenChamber working files
+.openchamber/
+
+# Per-machine boop CLI link; tenant slugs are not shared
+.boop.json

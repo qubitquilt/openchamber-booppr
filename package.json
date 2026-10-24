@@ -1,0 +1,100 @@
+{
+  "name": "openchamber-booppr",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenChamber extension for BoopPr: rail panel, attach picker, /boop command and a full-screen reviews dashboard.",
+  "scripts": {
+    "build": "npm run build:panel && npm run build:page && npm run build:attach && npm run build:background && npm run build:service",
+    "build:panel": "esbuild src/panel/main.ts --bundle --format=iife --platform=browser --target=es2022 --minify --legal-comments=none --outfile=panel/main.js",
+    "build:page": "esbuild src/page/main.ts --bundle --format=iife --platform=browser --target=es2022 --minify --legal-comments=none --outfile=panel/page.js",
+    "build:attach": "esbuild src/attach/main.ts --bundle --format=iife --platform=browser --target=es2022 --minify --legal-comments=none --outfile=panel/attach.js",
+    "build:background": "esbuild src/background/main.ts --bundle --format=iife --platform=browser --target=es2022 --minify --legal-comments=none --outfile=background/main.js",
+    "build:service": "esbuild src/service/main.ts --bundle --format=esm --platform=node --target=node20 --minify --legal-comments=none --outfile=service/main.js",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.service.json",
+    "lint": "eslint src test scripts eslint.config.mjs",
+    "lint:fix": "eslint src test scripts eslint.config.mjs --fix",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.mjs\" \"scripts/**/*.mjs\" \"panel/*.html\" \"background/*.html\" package.json tsconfig.json tsconfig.service.json eslint.config.mjs README.md AGENTS.md .github/**/*.md .github/**/*.yml",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.mjs\" \"scripts/**/*.mjs\" \"panel/*.html\" \"background/*.html\" package.json tsconfig.json tsconfig.service.json eslint.config.mjs README.md AGENTS.md .github/**/*.md .github/**/*.yml",
+    "check:manifest": "node scripts/check-manifest.mjs",
+    "test": "npm run build:test && node --test test/*.test.mjs",
+    "check": "npm run lint && npm run format:check && npm run typecheck && npm run check:manifest && npm run build && npm test",
+    "clean": "node -e \"for (const f of ['panel/main.js','panel/page.js','panel/attach.js','background/main.js','service/main.js']) require('node:fs').rmSync(f,{force:true}); require('node:fs').rmSync('build',{recursive:true,force:true})\"",
+    "build:test": "esbuild src/shared/format.ts src/shared/client.ts src/shared/errors.ts src/shared/details.ts src/shared/repo.ts src/shared/repo-filter.ts src/shared/session-links.ts src/shared/storage.ts src/shared/origin.ts src/shared/service.ts --bundle --format=esm --splitting --platform=neutral --target=es2022 --outdir=build --out-extension:.js=.mjs"
+  },
+  "openchamber": {
+    "apiVersion": 1,
+    "engines": {
+      "openchamber": ">=2.3.0"
+    },
+    "contributes": {
+      "panel": {
+        "id": "boop-reviews",
+        "name": "Boop reviews",
+        "icon": "assets/boop.svg",
+        "entry": "panel/index.html"
+      },
+      "page": {
+        "entry": "panel/page.html",
+        "title": "Boop Reviews"
+      },
+      "attach": {
+        "mode": "dialog",
+        "entry": "panel/attach.html"
+      },
+      "background": {
+        "entry": "background/index.html"
+      },
+      "capabilities": [
+        "prompt",
+        "sessions",
+        "files"
+      ],
+      "service": {
+        "entry": "service/main.js",
+        "runtime": "host"
+      },
+      "actions": [
+        {
+          "id": "review-with-boop",
+          "label": "Review with Boop",
+          "icon": "assets/boop.svg",
+          "where": "message",
+          "roles": [
+            "user",
+            "assistant"
+          ],
+          "mode": "open"
+        },
+        {
+          "id": "boop-from-session",
+          "label": "Attach a Boop PR or run",
+          "icon": "git-pull-request-line",
+          "where": "session",
+          "mode": "open"
+        }
+      ],
+      "commands": [
+        {
+          "name": "boop",
+          "description": "Attach a Boop PR or run, for example qubitquilt/boop#191"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "@openchamber/sdk": "^2.3.1",
+    "dompurify": "^3.2.7",
+    "marked": "^16.1.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "@types/node": "^22.18.6",
+    "esbuild": "^0.25.9",
+    "eslint": "^9.36.0",
+    "jsdom": "^30.1.2",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.44.1"
+  }
+}
