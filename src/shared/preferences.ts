@@ -3,6 +3,7 @@ import { read, write } from "./storage";
 import type { RunStatus, ReviewStatus } from "./constants";
 import { RUN_STATUSES, REVIEW_STATUSES } from "./constants";
 import { sanitizeRepoFilter } from "./repo-filter";
+import { PREFERENCES_KEY } from "./server-url";
 import { sanitizeSessionLinks, pruneSessionLinks, type SessionLink } from "./session-links";
 
 /** Selection persisted between surfaces, kept in the extension's own storage. */
@@ -30,8 +31,6 @@ export interface Preferences {
   /** Re-run a Boop review automatically when a linked session completes. */
   autoRereview: boolean;
 }
-
-const PREFERENCES_KEY = "preferences";
 
 const DEFAULTS: Preferences = {
   tenantId: "",

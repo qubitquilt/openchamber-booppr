@@ -1,10 +1,10 @@
 import { mountBanner, mountButton, mountSpinner, mountTextField } from "@openchamber/sdk/ui";
 
-import { LEGACY_API_ORIGIN, TENANT_ORIGIN } from "./constants";
+import { TENANT_ORIGIN } from "./constants";
 import { el } from "./dom";
 import { host } from "./host";
-import { normalizeOrigin } from "./origin";
 import { loadPreferences, savePreferences } from "./preferences";
+import { clearLegacyServerUrl } from "./server-url";
 import {
   describeServiceError,
   pollSignIn,
@@ -95,15 +95,11 @@ export function mountSignIn(root: HTMLElement, onConnected: () => void): () => v
     serverUrl = preferences?.serverUrl ?? "";
     slug = preferences?.tenantId ?? "";
     // A pre-fix client could have persisted the old default here — the
-    // dedicated API host. A login started there can never complete: the OAuth
-    // state cookie is host-only and GitHub's callback is fixed on the tenant
-    // origin, so the receiver answers "invalid state" with no hint why. Drop
-    // the stale value once and let the bundled tenant origin take over.
-    if (normalizeOrigin(serverUrl) === LEGACY_API_ORIGIN) {
-      serverUrl = "";
-      await savePreferences({ serverUrl: "" }).catch(() => undefined);
-      if (!active(id)) return;
-    }
+    // dedicated API host, where no login can complete. The migration in
+    // `server-url.ts` clears it and keeps the rest of the record; the field
+    // then shows the bundled tenant origin again.
+    if (await clearLegacyServerUrl(host.storage).catch(() => false)) serverUrl = "";
+    if (!active(id)) return;
     renderIdle();
   };
 

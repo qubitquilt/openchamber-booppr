@@ -16,9 +16,10 @@ builds and tests.
 src/shared/     code every surface shares: the API client, the service transport and sign-in,
                 chip builders, the review-request flow (`review.ts`), the per-tenant detail
                 caches (`details.ts`), preferences, stylesheet, storage helpers (`storage.ts`),
-                error formatting and load-error routing (`errors.ts`), the tenant bootstrap
-                (`tenants.ts`), the git-remote resolver (`repo.ts`), the repo filter grammar
-                (`repo-filter.ts`), and the one bare-origin rule (`origin.ts`)
+                the receiver-URL migration (`server-url.ts`), error formatting and load-error
+                routing (`errors.ts`), the tenant bootstrap (`tenants.ts`), the git-remote
+                resolver (`repo.ts`), the repo filter grammar (`repo-filter.ts`), and the one
+                bare-origin rule (`origin.ts`)
 src/service/    the local service      -> service/main.js (Node)
 src/panel/      the rail panel        -> panel/main.js
 src/page/       the full-screen page  -> panel/page.js
@@ -30,8 +31,8 @@ scripts/        the manifest check
 ```
 
 `src/shared/` must stay free of DOM-at-import-time work if you want it testable: `client.ts`,
-`errors.ts`, `format.ts`, `repo.ts`, `repo-filter.ts`, `origin.ts`, `storage.ts` and
-`session-links.ts` are bundled separately for `npm test` and run under Node (with `--splitting`, so
+`errors.ts`, `format.ts`, `repo.ts`, `repo-filter.ts`, `origin.ts`, `storage.ts`, `server-url.ts`
+and `session-links.ts` are bundled separately for `npm test` and run under Node (with `--splitting`, so
 `instanceof` holds across the bundles). `tenants.ts` and `preferences.ts` import `host`, so they
 stay out of the test bundle.
 
@@ -53,7 +54,8 @@ through the sign-in view's **Receiver URL** field (persisted as `serverUrl` in p
 validated by `parseServerUrl` in `src/shared/tenants.ts`). The origin is stored with the session
 JWT and reused for every later call; the service re-validates it (`normalizeOrigin`) before use.
 The sign-in view also clears a stored `serverUrl` that still holds the pre-fix default
-(`LEGACY_API_ORIGIN`, the API host) when it loads, so a client upgraded across that change cannot
+(`LEGACY_API_ORIGIN`, the API host) when it loads — the migration lives in `src/shared/server-url.ts`
+and is unit-tested in `test/server-url.test.mjs` — so a client upgraded across that change cannot
 restart the invalid-state bug silently.
 
 The receiver authenticates with a **session cookie**, not a bearer header, which is why this
@@ -78,10 +80,10 @@ integration card; it cannot work.
   turns any thrown value into one line of text; toasts carry the action and the error code, with
   the full message on the console.
 - Tests cover the pure modules (`client.ts`, `details.ts`, `errors.ts`, `format.ts`, `repo.ts`,
-  `repo-filter.ts`, `origin.ts`, `session-links.ts`, `storage.ts`) and the service's loopback
-  contract. `review.ts` imports `host` (it toasts), so it stays out of the test bundle like
-  `tenants.ts` and `preferences.ts`. Anything that needs the host is verified by opening the
-  surface in OpenChamber, not by a unit test.
+  `repo-filter.ts`, `origin.ts`, `server-url.ts`, `session-links.ts`, `storage.ts`) and the
+  service's loopback contract. `review.ts` imports `host` (it toasts), so it stays out of the test
+  bundle like `tenants.ts` and `preferences.ts`. Anything that needs the host is verified by opening
+  the surface in OpenChamber, not by a unit test.
 
 ## Trust boundaries
 
@@ -103,8 +105,9 @@ Fences, named so a future contributor knows where they sit:
   everywhere except the loopback hosts) before any call — the same function the service runs, so
   the two sides cannot drift.
 - **Storage trust.** The only writer of `host.storage` keys is this extension's code. Reads pass
-  through a sanitizer in `src/shared/preferences.ts` (`read<T>(key, sanitize)`). A new key needs a
-  sanitizer and a test.
+  through a sanitizer in `src/shared/preferences.ts` (`read<T>(key, sanitize)`); the receiver-URL
+  migration reads the same record through a narrow sanitizer in `src/shared/server-url.ts` that
+  rewrites only `serverUrl`. A new key needs a sanitizer and a test.
 - **Renderer trust.** The renderer never uses `innerHTML` outside `renderMarkdown` in
   `src/shared/dom.ts`. If you need HTML somewhere new, route it through `renderMarkdown` or extend
   `el()`; do not call `innerHTML` from a panel or page.
