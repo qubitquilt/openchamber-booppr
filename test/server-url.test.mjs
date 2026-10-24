@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { clearLegacyServerUrl } from "../build/server-url.mjs";
+import { storedReceiverUrl } from "../build/server-url.mjs";
 
 /**
  * The receiver-URL migration (Boop reviews of 835521e and 060731c): a client
@@ -9,7 +9,7 @@ import { clearLegacyServerUrl } from "../build/server-url.mjs";
  * its stored `serverUrl`. The migration must clear exactly that value, keep
  * the rest of the record byte-for-byte — the full preferences sanitizer must
  * fail these tests — and answer "" when the record is unreadable, so a
- * storage blip can never leave the API host pre-filled in the sign-in field.
+ * storage blip can never surface the stored API host.
  */
 
 /** An in-memory store that can fail, like `host.storage`. */
@@ -44,7 +44,7 @@ test("clears a stored serverUrl holding the pre-fix API-host default and keeps t
     nested: { a: 1 },
   });
 
-  assert.equal(await clearLegacyServerUrl(KEY, store), "");
+  assert.equal(await storedReceiverUrl(KEY, store), "");
 
   assert.deepEqual(store.map.get(KEY), {
     serverUrl: "",
@@ -60,7 +60,7 @@ test("clears the legacy URL when a pre-fix client saved it with a path", async (
   const store = mockStore();
   await store.set(KEY, { serverUrl: `${LEGACY}/`, tenantId: "acme" });
 
-  assert.equal(await clearLegacyServerUrl(KEY, store), "");
+  assert.equal(await storedReceiverUrl(KEY, store), "");
   assert.equal(store.map.get(KEY).serverUrl, "");
 });
 
@@ -74,7 +74,7 @@ test("answers every other stored serverUrl unchanged and writes nothing", async 
     const store = mockStore();
     await store.set(KEY, { serverUrl, tenantId: "acme" });
 
-    assert.equal(await clearLegacyServerUrl(KEY, store), serverUrl);
+    assert.equal(await storedReceiverUrl(KEY, store), serverUrl);
     assert.deepEqual(store.map.get(KEY), { serverUrl, tenantId: "acme" });
   }
 });
@@ -82,7 +82,7 @@ test("answers every other stored serverUrl unchanged and writes nothing", async 
 test('answers "" on an empty store without writing', async () => {
   const store = mockStore();
 
-  assert.equal(await clearLegacyServerUrl(KEY, store), "");
+  assert.equal(await storedReceiverUrl(KEY, store), "");
   assert.equal(store.map.has(KEY), false);
 });
 
@@ -90,15 +90,15 @@ test('answers "" on a junk record without writing', async () => {
   const store = mockStore();
   store.map.set(KEY, "junk");
 
-  assert.equal(await clearLegacyServerUrl(KEY, store), "");
+  assert.equal(await storedReceiverUrl(KEY, store), "");
   assert.equal(store.map.get(KEY), "junk");
 });
 
-test('answers "" on a failed read so the legacy URL never pre-fills the field', async () => {
-  // Boop re-review #3 (F1): a storage blip during the migration read must
-  // blank the field, not keep the stored API host in it.
+test('answers "" on a failed read instead of the stored value', async () => {
+  // Boop re-review #3 (F1): a failed read must answer "" rather than the
+  // stored API host; re-filling the field with that answer is signin.ts's job.
   const store = mockStore({ failRead: true });
 
-  assert.equal(await clearLegacyServerUrl(KEY, store), "");
+  assert.equal(await storedReceiverUrl(KEY, store), "");
   assert.equal(store.map.has(KEY), false);
 });

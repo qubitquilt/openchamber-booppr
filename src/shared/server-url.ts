@@ -12,21 +12,21 @@ import { read, write, type StorageStore } from "./storage";
  */
 
 /**
- * One-time migration for clients upgraded across the tenant-origin fix. A
- * pre-fix client could have saved the old default under `key` — the dedicated
- * API host — and a login started there can never complete: the receiver's
- * OAuth state cookie is host-only and GitHub's callback is fixed on the
- * tenant origin, so the receiver answers "invalid state" with no hint why.
- * Clear the stale value so the bundled tenant origin takes over, and keep
- * every other stored field as-is; the full sanitizer runs again on the next
- * load. Answers the URL the field should show: the stored one, or "" once the
- * legacy value is cleared — also when the record is unreadable, so a storage
- * blip can never leave the API host pre-filled.
+ * The stored receiver URL: the value under `recordKey`, with a one-time
+ * migration as the side effect. A pre-fix client could have saved the old
+ * default there — the dedicated API host — and a login started there can
+ * never complete: the receiver's OAuth state cookie is host-only and GitHub's
+ * callback is fixed on the tenant origin, so the receiver answers "invalid
+ * state" with no hint why. That stale value is cleared so the bundled tenant
+ * origin takes over, and every other stored field is kept as-is; the full
+ * sanitizer runs again on the next load. The answer is "" once the legacy
+ * value is cleared — and also when the record is unreadable, so a storage
+ * blip can never answer the API host.
  */
-export async function clearLegacyServerUrl(key: string, store: StorageStore): Promise<string> {
-  const prefs = await read(key, sanitizeStoredRecord, store);
+export async function storedReceiverUrl(recordKey: string, store: StorageStore): Promise<string> {
+  const prefs = await read(recordKey, sanitizeStoredRecord, store);
   if (normalizeOrigin(prefs.serverUrl) !== LEGACY_API_ORIGIN) return prefs.serverUrl;
-  await write(key, { ...prefs, serverUrl: "" }, store);
+  await write(recordKey, { ...prefs, serverUrl: "" }, store);
   return "";
 }
 

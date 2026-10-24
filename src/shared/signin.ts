@@ -3,7 +3,7 @@ import { mountBanner, mountButton, mountSpinner, mountTextField } from "@opencha
 import { TENANT_ORIGIN } from "./constants";
 import { el } from "./dom";
 import { host } from "./host";
-import { loadPreferences, migrateServerUrl, savePreferences } from "./preferences";
+import { loadPreferences, receiverUrlForSignIn, savePreferences } from "./preferences";
 import {
   describeServiceError,
   pollSignIn,
@@ -96,7 +96,7 @@ export function mountSignIn(root: HTMLElement, onConnected: () => void): () => v
     // dedicated API host, where no login can complete. The migration in
     // `server-url.ts` clears it and answers the URL the field should show,
     // so even a failed read cannot leave the API host pre-filled.
-    serverUrl = await migrateServerUrl().catch(() => "");
+    serverUrl = await receiverUrlForSignIn().catch(() => "");
     if (!active(id)) return;
     renderIdle();
   };
