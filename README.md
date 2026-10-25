@@ -27,7 +27,7 @@ fresh Boop review of the new head.
    this folder, and click **Add**. Approve the capability list, including the **local service** it
    asks for.
 2. Open the pug icon on the rail. It shows a **Receiver URL** field (default
-   `https://api.booppr.com`; http is accepted for `localhost` development receivers) and a **tenant
+   `https://app.booppr.com`; http is accepted for `localhost` development receivers) and a **tenant
    slug** field — the same slug `boop auth login <tenant>` takes.
 3. Click **Sign in with Boop**. Your browser opens the receiver's GitHub sign-in and bounces back to
    a local listener this extension started; the session never passes through the page.
@@ -80,10 +80,13 @@ the session can see (`/api/me/tenants`), and switching re-runs the login for tha
 ## The receiver URL
 
 The panel's sign-in reads a **Receiver URL**, remembered in the extension's own storage. Leave it
-blank for `https://api.booppr.com`, or point it at a port-forwarded development receiver —
-`http://localhost:8080` and friends are accepted for loopback hosts only. The origin is stored with
-the session, so every later call goes back to the receiver it was signed in against, and the service
-validates it again before use.
+blank for `https://app.booppr.com`, the tenant origin that serves the receiver's `/api/*` and
+`/auth/*` same-origin, or point it at a port-forwarded development receiver — `http://localhost:8080`
+and friends are accepted for loopback hosts only. Use the origin the receiver's GitHub callback lands
+on, not its dedicated API host: the sign-in's OAuth state cookie is host-only, so a login started on
+`https://api.booppr.com` comes back to `https://app.booppr.com/auth/callback` without its cookie and
+the receiver answers "invalid state". The origin is stored with the session, so every later call goes
+back to the receiver it was signed in against, and the service validates it again before use.
 
 ## Capabilities
 

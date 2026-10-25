@@ -3,6 +3,7 @@ import { read, write } from "./storage";
 import type { RunStatus, ReviewStatus } from "./constants";
 import { RUN_STATUSES, REVIEW_STATUSES } from "./constants";
 import { sanitizeRepoFilter } from "./repo-filter";
+import { storedReceiverUrl } from "./server-url";
 import { sanitizeSessionLinks, pruneSessionLinks, type SessionLink } from "./session-links";
 
 /** Selection persisted between surfaces, kept in the extension's own storage. */
@@ -84,6 +85,16 @@ export async function savePreferences(next: Partial<Preferences>): Promise<Prefe
   const merged = sanitize({ ...(await loadPreferences()), ...next });
   await write(PREFERENCES_KEY, merged, host.storage);
   return merged;
+}
+
+/**
+ * The receiver URL the sign-in view's field should show: the stored value,
+ * with the legacy API-host default cleared away and "" answered when the
+ * record is unreadable. Runs the one-time migration in `server-url.ts`, so an
+ * upgraded client cannot restart the invalid-state bug from a stale field.
+ */
+export async function receiverUrlForSignIn(): Promise<string> {
+  return storedReceiverUrl(PREFERENCES_KEY, host.storage);
 }
 
 /**

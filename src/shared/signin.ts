@@ -1,8 +1,9 @@
 import { mountBanner, mountButton, mountSpinner, mountTextField } from "@openchamber/sdk/ui";
 
+import { TENANT_ORIGIN } from "./constants";
 import { el } from "./dom";
 import { host } from "./host";
-import { loadPreferences, savePreferences } from "./preferences";
+import { loadPreferences, receiverUrlForSignIn, savePreferences } from "./preferences";
 import {
   describeServiceError,
   pollSignIn,
@@ -56,9 +57,9 @@ export function mountSignIn(root: HTMLElement, onConnected: () => void): () => v
     mountTextField(urlHolder, {
       label: "Receiver URL",
       value: serverUrl,
-      placeholder: "https://api.booppr.com",
+      placeholder: TENANT_ORIGIN,
       mono: true,
-      ...(error ? { error } : { helper: "Optional. Defaults to the bundled origin." }),
+      ...(error ? { error } : { helper: "Optional. Defaults to the bundled tenant origin." }),
       onChange: (value) => {
         serverUrl = value;
       },
@@ -90,8 +91,13 @@ export function mountSignIn(root: HTMLElement, onConnected: () => void): () => v
     clearTimer();
     const preferences = await loadPreferences().catch(() => null);
     if (!active(id)) return;
-    serverUrl = preferences?.serverUrl ?? "";
     slug = preferences?.tenantId ?? "";
+    // A pre-fix client could have persisted the old default here — the
+    // dedicated API host, where no login can complete. The migration in
+    // `server-url.ts` clears it and answers the URL the field should show,
+    // so even a failed read cannot leave the API host pre-filled.
+    serverUrl = await receiverUrlForSignIn().catch(() => "");
+    if (!active(id)) return;
     renderIdle();
   };
 

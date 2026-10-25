@@ -1,12 +1,31 @@
 /**
  * Values every surface and the service share.
  *
- * `API_ORIGIN` is the one source of truth for the Boop receiver. The service
+ * `TENANT_ORIGIN` is the one source of truth for the Boop receiver. The service
  * (`src/service/main.ts`) is the only place that reaches it, for the sign-in
  * and every forwarded call, so retargeting the extension means changing this
  * one line and rebuilding.
+ *
+ * It is the receiver's **tenant origin**, not its dedicated API host. The
+ * sign-in is a browser redirect whose OAuth state cookie (and CLI hand-off
+ * cookie) is host-only, while GitHub always comes back to the receiver's
+ * static `/auth/callback`. Starting the login on another host — notably
+ * `https://api.booppr.com`, which fronts only `/api/` — leaves the callback
+ * with no cookie and the receiver answers "invalid state". The tenant origin
+ * proxies both `/api/*` and `/auth/*` to the receiver, so it serves the
+ * session calls too.
  */
-export const API_ORIGIN = "https://api.booppr.com";
+export const TENANT_ORIGIN = "https://app.booppr.com";
+
+/**
+ * The pre-fix default, kept only so the sign-in view can recognize a
+ * `serverUrl` a pre-fix client persisted. A login started here can never
+ * complete — the OAuth state cookie is host-only and GitHub's callback is
+ * fixed on the tenant origin — so the receiver answers "invalid state". It is
+ * not a receiver; only the one-time migration in `src/shared/signin.ts` reads
+ * it.
+ */
+export const LEGACY_API_ORIGIN = "https://api.booppr.com";
 
 /**
  * The web console origin, used to build "open in the tenant console" links.

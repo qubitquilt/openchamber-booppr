@@ -102,6 +102,9 @@ test("refuses a sign-in origin that is not a bare origin", async () => {
   assert.equal(response.status, 400);
   const body = await response.json();
   assert.equal(body.error, "bad-origin");
+  // The example must name the tenant origin — the one host a login can
+  // complete on. The service builds it from TENANT_ORIGIN.
+  assert.match(body.message, /https:\/\/app\.booppr\.com/);
 });
 
 test("refuses a sign-in without a tenant slug", async () => {
@@ -113,6 +116,21 @@ test("refuses a sign-in without a tenant slug", async () => {
   assert.equal(response.status, 400);
   const body = await response.json();
   assert.equal(body.error, "bad-slug");
+});
+
+test("defaults the sign-in to the tenant origin, not the API host", async () => {
+  // The receiver's OAuth state cookie is host-only and its callback is
+  // https://app.booppr.com/auth/callback. A login started on the API host
+  // comes back to that callback without the cookie, which the receiver
+  // renders as "invalid state" — so the default must be the tenant origin.
+  const response = await fetch(url("/auth/start"), {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "application/json" },
+    body: JSON.stringify({ slug: "acme" }),
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(new URL(body.loginUrl).origin, "https://app.booppr.com");
 });
 
 test("starts a loopback login with the CLI's client id", async () => {

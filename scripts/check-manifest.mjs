@@ -26,12 +26,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const problems = [];
 
-/** Read `API_ORIGIN` out of the TypeScript constant instead of repeating it. */
-async function readApiOrigin() {
+/** Read `TENANT_ORIGIN` out of the TypeScript constant instead of repeating it. */
+async function readTenantOrigin() {
   const source = await readFile(resolve(root, "src/shared/constants.ts"), "utf8");
-  const match = /export const API_ORIGIN = "([^"]+)";/.exec(source);
+  const match = /export const TENANT_ORIGIN = "([^"]+)";/.exec(source);
   if (!match) {
-    problems.push("src/shared/constants.ts no longer declares a quoted API_ORIGIN.");
+    problems.push("src/shared/constants.ts no longer declares a quoted TENANT_ORIGIN.");
     return null;
   }
   return match[1];
@@ -48,7 +48,7 @@ async function readProviderId() {
   return match[1];
 }
 
-const REQUIRED_API_ORIGIN = await readApiOrigin();
+const REQUIRED_TENANT_ORIGIN = await readTenantOrigin();
 const REQUIRED_PROVIDER_ID = await readProviderId();
 
 const manifestText = await readFile(resolve(root, "package.json"), "utf8");
@@ -227,5 +227,5 @@ if (problems.length > 0) {
 }
 
 console.log(
-  `Manifest check passed: ${entries.size} entries, service ${service.entry}, apiOrigin ${REQUIRED_API_ORIGIN ?? "(none)"}, csp enforced.`,
+  `Manifest check passed: ${entries.size} entries, service ${service.entry}, tenantOrigin ${REQUIRED_TENANT_ORIGIN ?? "(none)"}, csp enforced.`,
 );
